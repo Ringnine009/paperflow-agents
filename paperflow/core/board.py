@@ -64,9 +64,14 @@ class TaskBoard:
 
     # -- constructors -----------------------------------------------------
     @classmethod
-    def create(cls, path: str | Path, input_spec: InputSpec) -> "TaskBoard":
-        """Create a fresh board (call :meth:`save` to persist it)."""
-        return cls(path=path, input_spec=input_spec)
+    def create(cls, path: str | Path, input_spec: InputSpec, run_id: str | None = None) -> "TaskBoard":
+        """Create a fresh board (call :meth:`save` to persist it).
+
+        `run_id` must be passed when the caller already allocated one (e.g.
+        the pipeline names the run directory with it) so the board id and
+        its directory stay in sync - the web dashboard resolves runs by id.
+        """
+        return cls(path=path, input_spec=input_spec, run_id=run_id)
 
     @classmethod
     def load(cls, path: str | Path) -> "TaskBoard":

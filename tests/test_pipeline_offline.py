@@ -195,6 +195,21 @@ def test_pipeline_happy_path(tmp_path: Path, fixture_pdf_full: Path):
     assert "44.2%" in full_text_artifact
 
 
+def test_board_id_matches_run_dir(tmp_path: Path, fixture_pdf_full: Path):
+    """The web dashboard resolves runs by id; board id must equal its dir name."""
+    llm = FakeLLM(
+        script={**_researcher_script(fixture_pdf_full), **_reader_script(), **_synthesizer_script()}
+    )
+    pipe = Pipeline(settings=SETTINGS, out_dir=tmp_path / "out", llm=llm)
+    _stub_arxiv(pipe)
+
+    result = pipe.run(str(fixture_pdf_full))
+    run_dir = Path(result["board"]).parent
+    board = json.loads(Path(result["board"]).read_text(encoding="utf-8"))
+    assert run_dir.name == board["id"]
+    assert result["run_id"] == board["id"]
+
+
 def test_pipeline_aborts_when_critical_agent_fails(tmp_path: Path, fixture_pdf_full: Path):
     # Reader has no script -> FakeLLM raises -> critical failure aborts
     llm = FakeLLM(script=_researcher_script(fixture_pdf_full))

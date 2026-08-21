@@ -56,7 +56,7 @@ class Pipeline:
         spec = parse_entry(entry, pdf_override=pdf_override)
         run_id = make_run_id()
         run_dir = self.out_dir / run_id
-        board = TaskBoard.create(run_dir / "board.json", spec)
+        board = TaskBoard.create(run_dir / "board.json", spec, run_id=run_id)
         board.save()
 
         agents = [
