@@ -1,0 +1,163 @@
+{
+  "id": "pf-20260821-122144-c43a0e",
+  "input": {
+    "raw": "https://arxiv.org/abs/1706.03762",
+    "kind": "arxiv",
+    "value": "1706.03762",
+    "pdf_override": null
+  },
+  "created_at": "2026-08-21T12:21:44+00:00",
+  "updated_at": "2026-08-21T12:22:54+00:00",
+  "status": "done",
+  "current_stage": "synthesizer",
+  "log": [
+    {
+      "ts": "2026-08-21T12:21:44+00:00",
+      "level": "info",
+      "agent": null,
+      "message": "orchestrator: pipeline started with 4 agents"
+    },
+    {
+      "ts": "2026-08-21T12:21:44+00:00",
+      "level": "info",
+      "agent": "researcher",
+      "message": "agent 'researcher' started"
+    },
+    {
+      "ts": "2026-08-21T12:21:55+00:00",
+      "level": "info",
+      "agent": "orchestrator",
+      "message": "artifact 'researcher_output' saved: researcher_output.json"
+    },
+    {
+      "ts": "2026-08-21T12:21:55+00:00",
+      "level": "info",
+      "agent": "orchestrator",
+      "message": "artifact 'full_text' saved: full_text.txt"
+    },
+    {
+      "ts": "2026-08-21T12:21:55+00:00",
+      "level": "info",
+      "agent": "researcher",
+      "message": "full text materialized (39509 chars)"
+    },
+    {
+      "ts": "2026-08-21T12:21:55+00:00",
+      "level": "info",
+      "agent": "researcher",
+      "message": "agent 'researcher' finished: done"
+    },
+    {
+      "ts": "2026-08-21T12:21:55+00:00",
+      "level": "info",
+      "agent": "reader",
+      "message": "agent 'reader' started"
+    },
+    {
+      "ts": "2026-08-21T12:22:10+00:00",
+      "level": "info",
+      "agent": "orchestrator",
+      "message": "artifact 'reader_output' saved: reader_output.json"
+    },
+    {
+      "ts": "2026-08-21T12:22:10+00:00",
+      "level": "info",
+      "agent": "reader",
+      "message": "agent 'reader' finished: done"
+    },
+    {
+      "ts": "2026-08-21T12:22:10+00:00",
+      "level": "info",
+      "agent": "critic",
+      "message": "agent 'critic' started"
+    },
+    {
+      "ts": "2026-08-21T12:22:32+00:00",
+      "level": "info",
+      "agent": "orchestrator",
+      "message": "artifact 'critic_output' saved: critic_output.json"
+    },
+    {
+      "ts": "2026-08-21T12:22:32+00:00",
+      "level": "info",
+      "agent": "critic",
+      "message": "agent 'critic' finished: done"
+    },
+    {
+      "ts": "2026-08-21T12:22:32+00:00",
+      "level": "info",
+      "agent": "synthesizer",
+      "message": "agent 'synthesizer' started"
+    },
+    {
+      "ts": "2026-08-21T12:22:54+00:00",
+      "level": "info",
+      "agent": "orchestrator",
+      "message": "final report written: report.md"
+    },
+    {
+      "ts": "2026-08-21T12:22:54+00:00",
+      "level": "info",
+      "agent": "synthesizer",
+      "message": "agent 'synthesizer' finished: done"
+    },
+    {
+      "ts": "2026-08-21T12:22:54+00:00",
+      "level": "info",
+      "agent": null,
+      "message": "orchestrator: pipeline complete"
+    }
+  ],
+  "agents": {
+    "researcher": {
+      "status": "done",
+      "started_at": "2026-08-21T12:21:44+00:00",
+      "finished_at": "2026-08-21T12:21:55+00:00",
+      "summary": "{\"title\": \"Attention Is All You Need\", \"authors\": [\"Ashish Vaswani\", \"Noam Shazeer\", \"Niki Parmar\", \"Jakob Uszkoreit\", \"Llion Jones\", \"Aidan N. Gomez\", \"Lukasz Kaiser\", \"Illia Polosukhin\"], \"abstract\"...",
+      "error": null
+    },
+    "reader": {
+      "status": "done",
+      "started_at": "2026-08-21T12:21:55+00:00",
+      "finished_at": "2026-08-21T12:22:10+00:00",
+      "summary": "{\"title\": \"Attention Is All You Need\", \"summary\": \"The paper introduces the Transformer, a novel neural network architecture for sequence transduction that relies entirely on attention mechanisms, dis...",
+      "error": null
+    },
+    "critic": {
+      "status": "done",
+      "started_at": "2026-08-21T12:22:10+00:00",
+      "finished_at": "2026-08-21T12:22:32+00:00",
+      "summary": "{\"verdicts\": [{\"claim\": \"The Transformer is the first transduction model relying entirely on self-attention.\", \"verdict\": \"supported\", \"evidence_quote\": \"To the best of our knowledge, however, the Tra...",
+      "error": null
+    },
+    "synthesizer": {
+      "status": "done",
+      "started_at": "2026-08-21T12:22:32+00:00",
+      "finished_at": "2026-08-21T12:22:54+00:00",
+      "summary": "# Attention Is All You Need — Final Review  ## Overview  This paper introduces the Transformer, a sequence transduction ...",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "researcher_output": {
+      "path": "outputs\\pf-20260821-122144-dba43b\\artifacts\\researcher_output.json",
+      "description": "Locates the paper and gathers metadata + full text"
+    },
+    "full_text": {
+      "path": "outputs\\pf-20260821-122144-dba43b\\artifacts\\full_text.txt",
+      "description": "paper body text (truncated)"
+    },
+    "reader_output": {
+      "path": "outputs\\pf-20260821-122144-dba43b\\artifacts\\reader_output.json",
+      "description": "Parses the paper structure and extracts claims & data"
+    },
+    "critic_output": {
+      "path": "outputs\\pf-20260821-122144-dba43b\\artifacts\\critic_output.json",
+      "description": "Fact-checks claims against the paper text"
+    }
+  },
+  "report": {
+    "path": "outputs\\pf-20260821-122144-dba43b\\report.md",
+    "preview": "# Attention Is All You Need — Final Review\n\n## Overview\n\nThis paper introduces the Transformer, a sequence transduction architecture that relies entirely on attention mechanisms, dispensing with recurrence and convolutions. The model achieves state-of-the-art BLEU scores on WMT 2014 English-to-German (28.4) and English-to-French (41.8) translation, with substantially lower training cost, and gener"
+  }
+}
