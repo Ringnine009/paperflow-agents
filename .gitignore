@@ -1,0 +1,24 @@
+# Secrets — never commit API keys
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime artifacts (task boards, downloaded PDFs, cache)
+outputs/
+.cache/
+*.log

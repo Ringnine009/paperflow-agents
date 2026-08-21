@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperflow-agents"
+version = "0.1.0"
+description = "PaperFlow - a lightweight multi-agent research collaboration system that turns a paper link/DOI/PDF into a structured review with related-work links."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "PaperFlow Contributors" }]
+keywords = ["multi-agent", "llm", "arxiv", "research", "deepseek", "agent-orchestration"]
+dependencies = [
+    "requests>=2.31",
+    "pypdf>=4.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+paperflow = "paperflow.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["paperflow*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not smoke' -q"
+pythonpath = ["."]
+markers = [
+    "smoke: hits the real arXiv / Crossref network APIs (excluded from the default run)",
+    "network: touches the network, may be skipped when PAPERFLOW_SKIP_NETWORK=1",
+]

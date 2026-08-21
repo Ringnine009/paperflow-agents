@@ -1,0 +1,8 @@
+# PaperFlow runtime dependencies
+requests>=2.31
+pypdf>=4.0
+fastapi>=0.110
+uvicorn>=0.29
+
+# Development / testing
+pytest>=8.0
