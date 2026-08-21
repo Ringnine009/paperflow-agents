@@ -82,7 +82,13 @@ Output ONLY the Markdown report (no extra commentary before or after).
 
     def parse_output(self, content: str) -> str:
         # the Synthesizer returns Markdown, not JSON
-        return content.strip()
+        text = content.strip()
+        # drop LLM preambles ("Let me compose the final review...") - the
+        # report must start at the first H1 heading
+        heading = text.find("# ")
+        if heading > 0:
+            text = text[heading:].strip()
+        return text
 
     def summarize(self, output: str) -> str:
         return output[:120].replace("\n", " ") + ("..." if len(output) > 120 else "")

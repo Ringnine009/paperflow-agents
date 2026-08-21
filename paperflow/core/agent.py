@@ -32,11 +32,17 @@ class Agent:
     requires: list[str] = []
     #: when True, a failure aborts the whole pipeline
     critical: bool = True
+    #: per-agent cap on tool-call rounds (None = use the global setting).
+    #: Tools that loop per claim (e.g. the Critic's search_text) may need more.
+    tool_rounds_override: int | None = None
 
     def __init__(self, registry: ToolRegistry, llm: LLMClient, settings: Settings | None = None):
         self.registry = registry
         self.llm = llm
         self.settings = settings or Settings()
+
+    def max_tool_rounds(self) -> int:
+        return self.tool_rounds_override if self.tool_rounds_override is not None else self.settings.max_tool_rounds
 
     # -- to be implemented by subclasses ----------------------------------
     def system_prompt(self) -> str:
@@ -72,7 +78,7 @@ class Agent:
             messages,
             tools=self.tools(),
             registry=self.registry,
-            max_tool_rounds=self.settings.max_tool_rounds,
+            max_tool_rounds=self.max_tool_rounds(),
             max_tokens=self.settings.max_output_tokens,
             temperature=self.settings.temperature,
         )

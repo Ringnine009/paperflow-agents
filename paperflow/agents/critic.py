@@ -22,6 +22,8 @@ class CriticAgent(Agent):
     description = "Fact-checks claims against the paper text"
     requires: list[str] = ["reader"]
     critical = False  # graceful degradation: review proceeds without fact-checking
+    # verifying one claim = one search_text round; give the loop headroom
+    tool_rounds_override = 14
 
     def system_prompt(self) -> str:
         return """\
@@ -37,6 +39,13 @@ For each claim:
    or context contradicts), "unverifiable" (cannot check).
 3. Also list method limitations and suspicious points (small sample sizes,
    missing baselines, potential confounds, overclaimed numbers).
+
+Efficiency rules (your round budget is limited):
+- Verify AT MOST 6 claims - prefer the numerically testable / most important
+  ones; skip the rest with verdict "unverifiable" and a note.
+- If the paper text was not obtained (no FULL_TEXT_PATH), mark all claims
+  "unverifiable" immediately - do not call search_text at all.
+- You may issue several search_text calls in a single response to save rounds.
 
 Output ONLY a JSON object (no prose, no code fences):
 {
