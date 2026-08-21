@@ -30,11 +30,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="run the agent team on one paper entry")
+    # --env-file is accepted both before and after the subcommand (SUPPRESS
+    # keeps the main parser's value when the subparser does not see it)
+    run_p.add_argument("--env-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     run_p.add_argument("entry", help="arXiv URL / DOI / local PDF path / free-text title")
     run_p.add_argument("--pdf", default=None, help="local PDF to use as full text (for DOI/URL entries)")
     run_p.add_argument("--out", default=None, help="output directory (default ./outputs)")
 
     serve_p = sub.add_parser("serve", help="start the web dashboard")
+    serve_p.add_argument("--env-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     serve_p.add_argument("--host", default="127.0.0.1")
     serve_p.add_argument("--port", type=int, default=8080)
     serve_p.add_argument("--out", default=None, help="run output directory (default ./outputs)")
@@ -48,14 +52,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     settings = get_settings()
     pipeline = Pipeline(settings=settings, out_dir=args.out)
-    print(f"▶ paperflow {__version__} — entry: {args.entry}")
+    # ASCII-only output: Windows consoles may use GBK and cannot encode ▶/✖/✔
+    print(f"==> paperflow {__version__} - entry: {args.entry}")
     print(f"  run output will be written under: {pipeline.out_dir.resolve()}")
     try:
         result = pipeline.run(args.entry, pdf_override=args.pdf)
     except Exception as exc:  # noqa: BLE001 - CLI should surface failures cleanly
-        print(f"✖ pipeline failed: {exc}", file=sys.stderr)
+        print(f"[error] pipeline failed: {exc}", file=sys.stderr)
         return 1
-    print(f"✔ status: {result['status']}")
+    print(f"[ok] status: {result['status']}")
     print(f"  task board : {result['board']}")
     if result["report"]:
         print(f"  review     : {result['report']}")
@@ -68,7 +73,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     from paperflow.web.app import create_app
 
     app = create_app(out_dir=args.out)
-    print(f"▶ PaperFlow dashboard at http://{args.host}:{args.port}")
+    print(f"==> PaperFlow dashboard at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 

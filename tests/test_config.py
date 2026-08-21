@@ -38,6 +38,15 @@ def test_load_dotenv_does_not_override_existing_env(tmp_path: Path, monkeypatch)
     assert __import__("os").environ["DEEPSEEK_API_KEY"] == "already-set"
 
 
+def test_load_dotenv_handles_utf8_bom(tmp_path: Path, monkeypatch):
+    """Windows editors often save .env with a UTF-8 BOM on the first line."""
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_bytes(b"\xef\xbb\xbfDEEPSEEK_API_KEY=sk-bom-key\n")
+    load_dotenv(env_file)
+    assert __import__("os").environ["DEEPSEEK_API_KEY"] == "sk-bom-key"
+
+
 def test_settings_reads_env_defaults(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-defaults")
     monkeypatch.delenv("PAPERFLOW_MODEL", raising=False)

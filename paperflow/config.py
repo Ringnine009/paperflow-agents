@@ -48,7 +48,8 @@ def load_dotenv(path: str | Path | None = None) -> Path | None:
     for candidate in candidates:
         if not candidate.is_file():
             continue
-        for line in candidate.read_text(encoding="utf-8").splitlines():
+        # utf-8-sig strips the BOM some Windows editors prepend to .env
+        for line in candidate.read_text(encoding="utf-8-sig").splitlines():
             match = _ENV_LINE.match(line)
             if match is None:  # comment or blank line
                 continue
