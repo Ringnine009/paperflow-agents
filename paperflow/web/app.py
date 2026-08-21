@@ -9,10 +9,16 @@ Endpoints:
 
 Runs execute in background threads; the board JSON file is the single source
 of truth, so the dashboard survives restarts and shows live progress.
+
+Failure discipline: the board is created *before* the worker starts (so the
+run is visible immediately), and ANY worker failure - missing API key,
+network error, LLM failure - is recorded on the board as ``failed`` with the
+error message. A run can never silently stall at "pending".
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -23,7 +29,10 @@ from pydantic import BaseModel
 
 from paperflow.config import get_settings
 from paperflow.core.board import TaskBoard, make_run_id
+from paperflow.ingest import parse_entry
 from paperflow.pipeline import Pipeline
+
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -78,16 +87,41 @@ class RunManager:
 
     # -- execution ---------------------------------------------------------
     def start(self, request: RunRequest) -> dict:
+        """Create the run (visible immediately) and launch the worker."""
         run_id = make_run_id()
-        pipeline = Pipeline(settings=get_settings(), out_dir=self.out_dir)
+        try:
+            spec = parse_entry(request.entry, pdf_override=request.pdf_override)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        def _worker() -> None:
-            pipeline.run(request.entry, pdf_override=request.pdf_override)
+        # pre-create the board so the run is visible at once, even if the
+        # worker dies before Pipeline.run() gets to create its own
+        TaskBoard.create(self.out_dir / run_id / "board.json", spec, run_id=run_id).save()
 
-        thread = threading.Thread(target=_worker, name=f"paperflow-{run_id}", daemon=True)
+        thread = threading.Thread(
+            target=self._worker, args=(run_id, request), name=f"paperflow-{run_id}", daemon=True
+        )
         self._threads[run_id] = thread
         thread.start()
         return {"run_id": run_id}
+
+    def _worker(self, run_id: str, request: RunRequest) -> None:
+        """Background runner: Pipeline is built here so a missing API key or
+        any other startup error becomes a visible board failure, not a 500."""
+        try:
+            pipeline = Pipeline(settings=get_settings(), out_dir=self.out_dir)
+            pipeline.run(request.entry, pdf_override=request.pdf_override, run_id=run_id)
+        except Exception as exc:  # noqa: BLE001 - record every worker failure
+            logger.error("run %s failed: %s", run_id, exc)
+            try:
+                board = TaskBoard.load(self.out_dir / run_id / "board.json")
+                board.set_status("failed", current_stage="pipeline")
+                board.add_log(f"pipeline failed: {type(exc).__name__}: {exc}", level="error")
+                board.save()
+            except Exception:  # noqa: BLE001 - the failure state itself must not crash
+                logger.exception("could not persist failure state for run %s", run_id)
+        finally:
+            self._threads.pop(run_id, None)
 
 
 def create_app(out_dir: str | Path | None = None) -> FastAPI:

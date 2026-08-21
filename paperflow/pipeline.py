@@ -51,10 +51,16 @@ class Pipeline:
             self.registry.get(name).func = func
 
     # -- execution --------------------------------------------------------
-    def run(self, entry: str, pdf_override: str | None = None) -> dict:
-        """Run the team on `entry`; returns result paths + status."""
+    def run(self, entry: str, pdf_override: str | None = None, run_id: str | None = None) -> dict:
+        """Run the team on `entry`; returns result paths + status.
+
+        `run_id` is optional: callers that already allocated one (the web
+        dashboard names the run directory and returns the id to the client
+        *before* the worker starts) pass it so the directory, board id and
+        the returned id all stay in sync.
+        """
         spec = parse_entry(entry, pdf_override=pdf_override)
-        run_id = make_run_id()
+        run_id = run_id or make_run_id()
         run_dir = self.out_dir / run_id
         board = TaskBoard.create(run_dir / "board.json", spec, run_id=run_id)
         board.save()
