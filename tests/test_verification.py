@@ -46,6 +46,17 @@ def test_verify_quote_missing():
     result = verify_quote(text, "a completely different sentence")
     assert result["found"] is False
     assert "not found" in result["reason"]
+    assert result["loc"] is None
+    assert result["context"] is None
+
+
+def test_verify_quote_reports_location_and_context():
+    text = "intro paragraph\n\n" + "the DBN raises the win rate from 44.2% to 68.8%.\n\n" + "outro paragraph"
+    result = verify_quote(text, "DBN raises the win rate from 44.2% to 68.8%")
+    assert result["found"] is True
+    assert isinstance(result["loc"], int) and result["loc"] > 0
+    # context comes from the whitespace-normalized (lowercased) text
+    assert "dbn raises" in result["context"]  # surrounding passage included
 
 
 def test_verify_quote_empty_and_too_short():
@@ -63,6 +74,10 @@ def test_verify_claims_annotates_each_claim():
     assert claims[1]["quote_verified"] is False
     assert claims[0]["quote_verification"]  # reason string present
     assert "not found" in claims[1]["quote_verification"]
+    # location + context annotations for the dashboard's Verification view
+    assert isinstance(claims[0]["quote_loc"], int)
+    assert claims[0]["quote_context"]
+    assert claims[1]["quote_loc"] is None
 
 
 # ---------------------------------------------------------------------------

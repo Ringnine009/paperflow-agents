@@ -72,10 +72,37 @@
                        color: var(--muted); }
   .empty { color: var(--muted); font-size: 13px; padding: 20px 0; }
   #report-view { display: none; }
+  #verification-view { display: none; }
   .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
   .tabs button { background: transparent; color: var(--muted); border: 1px solid var(--border);
                  font-weight: 500; }
   .tabs button.active { color: var(--text); border-color: var(--accent); }
+  /* Verification view */
+  .verify-stats { margin: 4px 0 14px; font-size: 13px; }
+  .verify-bar { height: 6px; background: var(--panel2); border: 1px solid var(--border);
+                border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .verify-bar > div { height: 100%; background: var(--ok); }
+  .claim-card { border: 1px solid var(--border); border-radius: 10px;
+                background: var(--panel); margin-bottom: 10px; overflow: hidden; }
+  .claim-head { padding: 10px 12px; cursor: pointer; display: flex; gap: 10px;
+                align-items: flex-start; }
+  .claim-head:hover { background: var(--panel2); }
+  .vbadge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 99px;
+            border: 1px solid var(--border-strong); color: var(--muted);
+            font-family: "JetBrains Mono", Consolas, monospace; flex-shrink: 0; }
+  .vbadge.verified { color: var(--ok); border-color: var(--ok); }
+  .vbadge.unverified { color: var(--err); border-color: var(--err); }
+  .claim-body { display: none; padding: 4px 12px 12px; border-top: 1px solid var(--border); }
+  .claim-card.open .claim-body { display: block; }
+  .claim-quote { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
+                 background: var(--panel2); border-left: 3px solid var(--accent);
+                 padding: 8px 10px; margin: 10px 0 8px; border-radius: 0 6px 6px 0;
+                 color: var(--text); }
+  .claim-meta { color: var(--muted); font-size: 12px; }
+  .claim-meta div { margin: 3px 0; }
+  .claim-ctx { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px;
+               color: var(--muted); }
+  .verify-note { color: var(--muted); font-size: 11px; font-style: italic; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -143,18 +170,23 @@ function renderDetail(board) {
     <div class="tabs">
       <button id="tab-board" class="active" onclick="showTab('board')">Task board</button>
       <button id="tab-report" onclick="showTab('report')">Report</button>
+      <button id="tab-verification" onclick="showTab('verification')">Verification</button>
     </div>
     <div id="board-view"><h2>Activity log</h2><div class="log">${log || '<div class="empty">no events yet</div>'}</div></div>
-    <div id="report-view"><div class="report"></div></div>`;
+    <div id="report-view"><div class="report"></div></div>
+    <div id="verification-view"><div class="empty">loading…</div></div>`;
   if (board.report) loadReport(board.id);
+  loadVerification(board.id);
   if (board.status === "running") startPolling(); else stopPolling();
 }
 
 function showTab(which) {
-  $("tab-board").classList.toggle("active", which === "board");
-  $("tab-report").classList.toggle("active", which === "report");
-  $("board-view").style.display = which === "board" ? "" : "none";
-  $("report-view").style.display = which === "report" ? "" : "none";
+  ["board", "report", "verification"].forEach(t => {
+    const btn = $(`tab-${t}`);
+    const view = $(`${t}-view`);
+    if (btn) btn.classList.toggle("active", t === which);
+    if (view) view.style.display = t === which ? "" : "none";
+  });
 }
 
 async function loadReport(id) {
@@ -164,6 +196,61 @@ async function loadReport(id) {
     $("report-view").querySelector(".report").innerHTML = md(text);
   } catch { /* report not ready yet */ }
 }
+
+/* ---- Verification view: deterministic quote verification ---- */
+
+function vBadge(quoteVerified) {
+  if (quoteVerified === true) return '<span class="vbadge verified">✓ verified</span>';
+  if (quoteVerified === false) return '<span class="vbadge unverified">✗ unverified</span>';
+  return '<span class="vbadge">— pending</span>';
+}
+
+function renderVerification(data) {
+  const box = $("verification-view");
+  const { total_count, verified_count, claims } = data;
+  if (!total_count) {
+    box.innerHTML = '<div class="empty">No claims to verify for this run.</div>';
+    return;
+  }
+  const pct = Math.round((verified_count / total_count) * 100);
+  const cards = claims.map((c, i) => {
+    const verdictChip = c.verdict
+      ? ` &nbsp;<span class="vbadge">${esc(c.verdict)}</span>` : "";
+    const ctx = c.quote_context
+      ? `<div class="claim-ctx">… ${esc(c.quote_context)} …</div>` : "";
+    return `
+    <div class="claim-card" onclick="toggleClaim(this)">
+      <div class="claim-head">
+        ${vBadge(c.quote_verified)}
+        <div><strong>${esc(c.claim || `(claim ${i + 1})`)}</strong>${verdictChip}</div>
+      </div>
+      <div class="claim-body">
+        ${c.quote ? `<div class="claim-quote">${esc(c.quote)}</div>` : ""}
+        <div class="claim-meta">
+          ${c.verdict_note ? `<div>critic: ${esc(c.verdict_note)}</div>` : ""}
+          ${c.quote_verification ? `<div>code: ${esc(c.quote_verification)}</div>` : ""}
+          ${c.quote_loc != null ? `<div>location ≈ char ${c.quote_loc} (normalized full text)</div>` : ""}
+          ${ctx}
+        </div>
+        <div class="verify-note">quote presence is verified by code, not by the LLM</div>
+      </div>
+    </div>`;
+  }).join("");
+  box.innerHTML = `
+    <div class="verify-stats"><strong>${verified_count}/${total_count}</strong> claims verified (${pct}%)
+      <div class="verify-bar"><div style="width:${pct}%"></div></div>
+    </div>
+    ${cards}`;
+}
+
+async function loadVerification(id) {
+  try {
+    const data = await api(`/api/runs/${id}/verification`);
+    renderVerification(data);
+  } catch { /* run may be gone */ }
+}
+
+function toggleClaim(card) { card.classList.toggle("open"); }
 
 async function refresh() {
   const { runs } = await api("/api/boards");
@@ -180,6 +267,7 @@ function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = 
 async function selectRun(id) { current = id; refresh(); }
 window.selectRun = selectRun;
 window.showTab = showTab;
+window.toggleClaim = toggleClaim;
 
 $("start").addEventListener("click", async () => {
   const entry = $("entry").value.trim();

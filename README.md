@@ -142,6 +142,12 @@ python -m paperflow serve --port 8080
 
 ![PaperFlow dashboard (light theme)](docs/dashboard.png)
 ![PaperFlow report view](docs/report.png)
+![PaperFlow verification view](docs/verification.png)
+
+The dashboard has three tabs: **Task board** (live agent states + log),
+**Report** (rendered review) and **Verification** — a per-claim view of the
+deterministic quote check: every claim's quote, whether the code found it
+verbatim in the paper text, where it was found, and the critic's verdict.
 
 > The dashboard binds `127.0.0.1` by default and the fetch tools refuse
 > private/loopback/link-local URLs (SSRF guard). It is a local tool — do

@@ -19,39 +19,54 @@ def normalize_ws(text: str) -> str:
     return _WHITESPACE.sub(" ", text).strip().lower()
 
 
-def verify_quote(full_text: str, quote: str, min_chars: int = 4) -> dict:
+def verify_quote(full_text: str, quote: str, min_chars: int = 4, context_window: int = 180) -> dict:
     """Deterministic quote-presence check against the paper text.
 
     Whitespace-normalized and case-insensitive. This is a *code* guarantee:
     ``found`` is True only when the (normalized) quote literally occurs in
     the full text - no LLM involved.
 
-    Returns ``{"found": bool, "reason": str}``.
+    Returns ``{"found": bool, "reason": str, "loc": int|None, "context": str|None}``
+    where ``loc`` is the match index in the *normalized* text and ``context``
+    is a short surrounding passage (used by the dashboard's Verification
+    view to show where in the paper the quote was found).
     """
     if not quote or not quote.strip():
-        return {"found": False, "reason": "empty quote"}
+        return {"found": False, "reason": "empty quote", "loc": None, "context": None}
     needle = normalize_ws(quote)
     if len(needle) < min_chars:
-        return {"found": False, "reason": "quote too short to verify"}
+        return {"found": False, "reason": "quote too short to verify", "loc": None, "context": None}
     haystack = normalize_ws(full_text)
     if not haystack:
-        return {"found": False, "reason": "no full text available"}
-    if needle in haystack:
-        return {"found": True, "reason": "quote found verbatim (whitespace-normalized)"}
-    return {"found": False, "reason": "quote not found in the paper text"}
+        return {"found": False, "reason": "no full text available", "loc": None, "context": None}
+    loc = haystack.find(needle)
+    if loc == -1:
+        return {"found": False, "reason": "quote not found in the paper text", "loc": None, "context": None}
+    start = max(0, loc - context_window)
+    end = min(len(haystack), loc + len(needle) + context_window)
+    return {
+        "found": True,
+        "reason": "quote found verbatim (whitespace-normalized)",
+        "loc": loc,
+        "context": haystack[start:end],
+    }
 
 
 def verify_claims(full_text: str, claims: list[dict]) -> list[dict]:
     """Annotate every claim with its deterministic verification result.
 
-    Each claim dict gains ``quote_verified`` (bool) and
-    ``quote_verification`` (reason string). Claims without a quote are
-    marked not verified, so downstream stages never assume LLM provenance.
+    Each claim dict gains ``quote_verified`` (bool), ``quote_verification``
+    (reason string), ``quote_loc`` (match index, may be None) and
+    ``quote_context`` (surrounding passage, may be None). Claims without a
+    quote are marked not verified, so downstream stages never assume LLM
+    provenance.
     """
     for claim in claims:
         result = verify_quote(full_text, claim.get("quote", ""))
         claim["quote_verified"] = result["found"]
         claim["quote_verification"] = result["reason"]
+        claim["quote_loc"] = result["loc"]
+        claim["quote_context"] = result["context"]
     return claims
 
 

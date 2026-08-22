@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from paperflow.web.app import RunManager, RunRequest
+from paperflow.web.app import RunManager, RunRequest, align_claims
 
 
 class FakePipeline:
@@ -141,3 +141,80 @@ def test_orphan_running_marked_interrupted(tmp_path: Path):
     # the detail endpoint agrees (read-time marking, not persisted)
     detail = manager.board(run_id)
     assert detail.status == "interrupted"
+
+
+# ---------------------------------------------------------------------------
+# Verification view: reader claims x critic verdicts alignment
+# ---------------------------------------------------------------------------
+
+def test_align_claims_matches_verdicts_by_index():
+    reader = {
+        "claims": [
+            {"claim": "claim A", "quote": "q1", "quote_verified": True,
+             "quote_verification": "quote found verbatim", "quote_loc": 10, "quote_context": "ctx"},
+            {"claim": "claim B", "quote": "q2", "quote_verified": False,
+             "quote_verification": "quote not found", "quote_loc": None, "quote_context": None},
+            {"claim": "claim C", "quote": "q3"},  # no verification info -> pending
+        ]
+    }
+    critic = {
+        "verdicts": [
+            {"claim_index": 0, "claim": "rephrased A", "verdict": "supported", "note": ""},
+            {"claim_index": 1, "claim": "rephrased B", "verdict": "supported", "note": "llm note"},
+            # claim C has no verdict
+        ]
+    }
+    payload = align_claims(reader, critic)
+    assert payload["total_count"] == 3
+    assert payload["verified_count"] == 1
+    rows = {r["claim_index"]: r for r in payload["claims"]}
+    assert rows[0]["verdict"] == "supported"
+    assert rows[0]["quote_verified"] is True
+    assert rows[0]["quote_loc"] == 10
+    assert rows[1]["verdict"] == "supported"   # aligned by index despite rephrasing
+    assert rows[1]["quote_verified"] is False
+    assert rows[1]["verdict_note"] == "llm note"
+    assert rows[2]["verdict"] is None          # missing critic verdict
+    assert rows[2]["quote_verified"] is None   # pending
+
+
+def test_align_claims_falls_back_to_claim_text():
+    reader = {"claims": [{"claim": "original wording", "quote": "q", "quote_verified": False}]}
+    critic = {"verdicts": [{"claim": "original wording", "verdict": "unverified", "note": "n"}]}
+    payload = align_claims(reader, critic)
+    assert payload["claims"][0]["verdict"] == "unverified"
+
+
+def test_verification_manager_reads_artifacts(tmp_path: Path):
+    """RunManager.verification() serves the aligned payload from the board."""
+    from paperflow.core.board import TaskBoard, make_run_id
+    from paperflow.ingest import parse_entry
+
+    manager = RunManager(tmp_path / "out")
+    run_id = make_run_id()
+    artifacts = tmp_path / "out" / run_id / "artifacts"
+    artifacts.mkdir(parents=True)
+    board = TaskBoard.create(
+        tmp_path / "out" / run_id / "board.json",
+        parse_entry("https://arxiv.org/abs/1706.03762"),
+        run_id=run_id,
+    )
+    reader_path = artifacts / "reader_output.json"
+    reader_path.write_text(
+        json.dumps({"claims": [{"claim": "A", "quote": "q", "quote_verified": True, "quote_loc": 5}]}),
+        encoding="utf-8",
+    )
+    critic_path = artifacts / "critic_output.json"
+    critic_path.write_text(
+        json.dumps({"verdicts": [{"claim_index": 0, "claim": "A", "verdict": "supported", "note": ""}]}),
+        encoding="utf-8",
+    )
+    board.set_artifact("reader_output", str(reader_path), "")
+    board.set_artifact("critic_output", str(critic_path), "")
+    board.save()
+
+    payload = manager.verification(run_id)
+    assert payload["run_id"] == run_id
+    assert payload["total_count"] == 1
+    assert payload["verified_count"] == 1
+    assert payload["claims"][0]["verdict"] == "supported"
