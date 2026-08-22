@@ -112,3 +112,32 @@ def test_serve_applies_env_file(tmp_path: Path, monkeypatch):
     assert code == 0
     assert captured["env_file"] == str(env_file)
     assert captured["key"] == "sk-serve-test-key"
+
+
+def test_orphan_running_marked_interrupted(tmp_path: Path):
+    """A run left 'running' by a dead process must read as 'interrupted'.
+
+    Simulates a server restart: a board.json on disk says running, but no
+    worker thread exists for it.
+    """
+    from paperflow.core.board import TaskBoard, make_run_id
+    from paperflow.ingest import parse_entry
+
+    manager = RunManager(tmp_path / "out")
+    run_id = make_run_id()
+    board = TaskBoard.create(
+        tmp_path / "out" / run_id / "board.json",
+        parse_entry("https://arxiv.org/abs/1706.03762"),
+        run_id=run_id,
+    )
+    board.set_status("running", current_stage="reader")
+    board.save()
+
+    runs = manager.boards()
+    assert runs[0]["id"] == run_id
+    assert runs[0]["status"] == "interrupted"
+    assert runs[0]["active"] is False
+
+    # the detail endpoint agrees (read-time marking, not persisted)
+    detail = manager.board(run_id)
+    assert detail.status == "interrupted"

@@ -157,16 +157,16 @@ produces a report like this (full sample under `examples/`):
 ...
 
 ## Key Claims & Evidence
-- DBN + prompted reasoning raises villager win rate 44.2% → 68.8%
-  **[supported]** (quote verified in full text: "...44.2% without beliefs...")
+- **The unassisted baseline win rate is 44.2%.** **[supported]** — Confirmed in Table 2 (Group A).
+- **Combining MaKTO-Proxy and DBN increases win rate to 68.8%.** **[supported]** — Verbatim quote found: "Group E (MaKTO + DBN, 68.8%) ...".
 
 ## Related Work
-- [The Rise and Potential of Large Language Model Based Agents](https://arxiv.org/abs/2309.07864)
-- [Communicative Agents for Software Development (ChatDev)](https://arxiv.org/abs/2307.07924)
+- [Werewolf Arena: A Case Study in LLM Evaluation via Social Deduction](https://arxiv.org/abs/2407.13943)
+- [Theory of Mind for Multi-Agent Collaboration via Large Language Models](https://arxiv.org/abs/2310.10701)
 - ...
 
 ## Relevance to My Research Direction
-**9/10** — directly aligned with multi-agent social reasoning ...
+**Score: 8/10** — sits squarely at the intersection of multi-agent social reasoning ...
 ```
 
 ---

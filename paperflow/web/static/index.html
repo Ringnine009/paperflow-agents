@@ -6,23 +6,25 @@
 <title>PaperFlow · Multi-Agent Paper Review</title>
 <style>
   :root {
-    --bg: #0a0a0b; --panel: #121214; --panel2: #18181b; --border: #27272a;
-    --text: #e4e4e7; --muted: #a1a1aa; --accent: #6c8cff; --ok: #4ade80;
-    --warn: #fbbf24; --err: #f87171;
+    /* light theme (explicit design spec) */
+    --bg: #fafbfc; --panel: #ffffff; --panel2: #f4f5f7;
+    --border: rgba(0,0,0,0.08); --border-strong: rgba(0,0,0,0.14);
+    --text: #17181c; --muted: #6d737c; --accent: #4f46e5;
+    --ok: #16a34a; --warn: #b45309; --err: #dc2626;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.55 "Inter", "Segoe UI", system-ui, sans-serif; }
   header { padding: 20px 28px; border-bottom: 1px solid var(--border);
-           display: flex; align-items: baseline; gap: 12px; }
+           display: flex; align-items: baseline; gap: 12px; background: var(--panel); }
   header h1 { font-size: 18px; margin: 0; letter-spacing: -0.02em; }
   header span { color: var(--muted); font-size: 12px; }
   main { max-width: 1100px; margin: 0 auto; padding: 24px 28px 60px; }
   .entry-row { display: flex; gap: 10px; }
   input[type=text] { flex: 1; background: var(--panel); color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-  input[type=text]:focus { outline: 1px solid var(--accent); }
-  button { background: var(--accent); color: #0a0a0b; font-weight: 600;
+    border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { background: var(--accent); color: #ffffff; font-weight: 600;
     border: 0; border-radius: 8px; padding: 10px 18px; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
   .hint { color: var(--muted); font-size: 12px; margin: 8px 2px 0; }
@@ -39,24 +41,35 @@
              color: var(--muted); }
   .run .title { margin: 4px 0; font-size: 13px; }
   .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 99px;
-           border: 1px solid var(--border); color: var(--muted); }
+           border: 1px solid var(--border-strong); color: var(--muted); }
   .badge.done { color: var(--ok); border-color: var(--ok); }
   .badge.failed { color: var(--err); border-color: var(--err); }
+  .badge.interrupted { color: var(--err); border-color: var(--err); }
   .badge.running { color: var(--warn); border-color: var(--warn); }
   .agents { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
   .agent-chip { font-size: 11px; padding: 3px 10px; border-radius: 99px;
-                border: 1px solid var(--border); color: var(--muted); }
+                border: 1px solid var(--border-strong); color: var(--muted); }
   .agent-chip.running { color: var(--warn); border-color: var(--warn); }
   .agent-chip.done { color: var(--ok); border-color: var(--ok); }
   .agent-chip.failed { color: var(--err); border-color: var(--err); }
   .agent-chip.pending { opacity: 0.55; }
   .log { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px;
          color: var(--muted); max-height: 180px; overflow: auto; }
-  .log div { padding: 2px 0; border-bottom: 1px solid #1d1d20; }
+  .log div { padding: 2px 0; border-bottom: 1px solid #eceef1; }
   .report { white-space: pre-wrap; font-size: 13px; }
   .report h1, .report h2 { color: var(--text); }
   .report a { color: var(--accent); }
   .report strong { color: var(--text); }
+  .report code { background: var(--panel2); border: 1px solid var(--border);
+                 border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .report pre { white-space: pre-wrap; background: var(--panel2);
+                border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .report table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 12.5px; }
+  .report th, .report td { border: 1px solid var(--border-strong);
+                           padding: 5px 10px; text-align: left; }
+  .report th { background: var(--panel2); font-weight: 600; }
+  .report blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid var(--accent);
+                       color: var(--muted); }
   .empty { color: var(--muted); font-size: 13px; padding: 20px 0; }
   #report-view { display: none; }
   .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -90,7 +103,9 @@
   </div>
 </main>
 
+<script src="/static/markdown.js"></script>
 <script>
+const { esc, md } = window.PaperFlowMD;
 const $ = (id) => document.getElementById(id);
 let current = null, pollTimer = null;
 
@@ -98,33 +113,6 @@ async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
-}
-
-function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-
-/* tiny safe markdown renderer (headings, bold, italic, links, code, lists, quotes) */
-function md(src) {
-  const lines = esc(src).split("\n");
-  let html = "", inCode = false, inList = false;
-  const inline = (t) => t
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    if (line.trim().startsWith("```")) { inCode = !inCode; html += inCode ? "<pre><code>" : "</code></pre>\n"; continue; }
-    if (inCode) { html += line + "\n"; continue; }
-    const m = line.match(/^(#{1,3})\s+(.*)$/);
-    if (m) { const lvl = m[1].length; html += `<h${lvl}>${inline(m[2])}</h${lvl}>`; continue; }
-    if (line.startsWith("> ")) { html += `<blockquote>${inline(line.slice(2))}</blockquote>`; continue; }
-    if (/^\s*[-*]\s+/.test(line)) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(line.replace(/^\s*[-*]\s+/, ""))}</li>`; continue; }
-    if (inList) { html += "</ul>"; inList = false; }
-    if (line.trim() === "") { html += "\n"; continue; }
-    html += `<p>${inline(line)}</p>`;
-  }
-  if (inList) html += "</ul>";
-  return html;
 }
 
 function statusBadge(s) { return `<span class="badge ${s}">${s}</span>`; }

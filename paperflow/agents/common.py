@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from paperflow.core.jsonutil import json_dumps
@@ -10,22 +11,22 @@ from paperflow.core.jsonutil import json_dumps
 
 def load_artifact_json(board: Any, name: str) -> dict | None:
     """Read an agent's JSON output artifact from the board, if present."""
-    entry = board.artifacts.get(name)
-    if not entry:
+    path = artifact_path(board, name)
+    if not path:
         return None
     try:
-        return json.loads(entry["path"] and open(entry["path"], encoding="utf-8").read())
+        return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
 
 
 def load_artifact_text(board: Any, name: str) -> str | None:
     """Read a text artifact from the board, if present."""
-    entry = board.artifacts.get(name)
-    if not entry:
+    path = artifact_path(board, name)
+    if not path:
         return None
     try:
-        return open(entry["path"], encoding="utf-8").read()
+        return Path(path).read_text(encoding="utf-8")
     except OSError:
         return None
 

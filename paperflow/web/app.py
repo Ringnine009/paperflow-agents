@@ -51,6 +51,17 @@ class RunManager:
         self._threads: dict[str, threading.Thread] = {}
 
     # -- run discovery -----------------------------------------------------
+    def _effective_status(self, run_id: str, board: TaskBoard) -> str:
+        """Read-time status resolution.
+
+        A run whose board says "running" but has no live worker thread (the
+        server was restarted mid-run) is reported as "interrupted" instead of
+        spinning forever. Marking is read-time only; the file is untouched.
+        """
+        if board.status == "running" and run_id not in self._threads:
+            return "interrupted"
+        return board.status
+
     def boards(self) -> list[dict]:
         """Summaries of all runs, newest first."""
         summaries = []
@@ -63,7 +74,7 @@ class RunManager:
                 {
                     "id": board.id,
                     "input": board.input.to_dict(),
-                    "status": board.status,
+                    "status": self._effective_status(board.id, board),
                     "current_stage": board.current_stage,
                     "agents": board.agents,
                     "created_at": board.created_at,
@@ -77,7 +88,9 @@ class RunManager:
         path = self.out_dir / run_id / "board.json"
         if not path.is_file():
             raise HTTPException(status_code=404, detail=f"no such run: {run_id}")
-        return TaskBoard.load(path)
+        board = TaskBoard.load(path)
+        board.status = self._effective_status(run_id, board)
+        return board
 
     def report(self, run_id: str) -> str:
         board = self.board(run_id)

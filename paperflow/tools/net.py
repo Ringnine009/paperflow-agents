@@ -40,11 +40,31 @@ def throttle(host: str, min_interval: float = 3.0) -> None:
     _LAST_REQUEST[host] = time.time()
 
 
-def http_get_bytes(url: str, timeout: int = 30, headers: dict | None = None) -> bytes:
-    """GET a URL and return raw bytes (raises on HTTP errors)."""
-    response = requests.get(
-        url, timeout=timeout, headers={"User-Agent": USER_AGENT, **(headers or {})}
-    )
+#: statuses worth retrying - arXiv rate limits surface as 429, and 5xx are
+#: transient server errors; everything else (404, 403, ...) is final
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def http_get_bytes(
+    url: str,
+    timeout: int = 30,
+    headers: dict | None = None,
+    max_retries: int = 3,
+    retry_delay: float = 8.0,
+) -> bytes:
+    """GET a URL and return raw bytes, retrying rate limits / 5xx with backoff.
+
+    arXiv's public API blocks IPs that burst too many requests (HTTP 429);
+    waiting out the window with exponential backoff is the polite recovery.
+    """
+    response = None
+    for attempt in range(max_retries + 1):
+        response = requests.get(
+            url, timeout=timeout, headers={"User-Agent": USER_AGENT, **(headers or {})}
+        )
+        if response.status_code not in RETRYABLE_STATUS or attempt >= max_retries:
+            break
+        time.sleep(retry_delay * (attempt + 1))
     response.raise_for_status()
     return response.content
 

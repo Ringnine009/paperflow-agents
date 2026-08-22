@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from paperflow.agents.common import load_artifact_json, load_artifact_text
 from paperflow.core.agent import Agent
+from paperflow.core.jsonutil import json_dumps
+from paperflow.tools.texttools import verify_claims
 
 
 class ReaderAgent(Agent):
@@ -75,3 +77,28 @@ Output ONLY a JSON object (no prose, no code fences):
             "method_summary": data.get("method_summary", ""),
             "open_questions": data.get("open_questions", []),
         }
+
+    def after_run(self, board, output: dict) -> None:
+        """Deterministically verify every claim's quote against the full text.
+
+        Quote presence becomes a *code* guarantee: each claim is annotated
+        with ``quote_verified`` (found / not found) and the annotated claims
+        are persisted back onto the artifact the Critic and Synthesizer
+        consume. A quote the code cannot find is later downgraded to
+        "unverified" by the Critic regardless of what any LLM says.
+        """
+        full_text = load_artifact_text(board, "full_text")
+        claims = output.get("claims") or []
+        if not (full_text and claims):
+            return
+        verify_claims(full_text, claims)
+        artifacts = board.artifacts_dir()
+        artifacts.mkdir(parents=True, exist_ok=True)
+        path = artifacts / f"{self.name}_output.json"
+        path.write_text(json_dumps(output), encoding="utf-8")
+        board.set_artifact(f"{self.name}_output", str(path), self.description)
+        found = sum(1 for c in claims if c.get("quote_verified"))
+        board.add_log(
+            f"quote verification: {found}/{len(claims)} quotes found verbatim in full text",
+            agent=self.name,
+        )

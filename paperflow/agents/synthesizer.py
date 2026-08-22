@@ -33,6 +33,14 @@ class SynthesizerAgent(Agent):
     description = "Writes the final structured review report"
     requires: list[str] = ["researcher", "reader"]  # critic is optional
     critical = True
+    #: how many related-work searches the model may make in one run
+    RELATED_WORK_BUDGET = 3
+    #: returned by the tool once the budget is spent - forces the report
+    BUDGET_MESSAGE = (
+        "SEARCH BUDGET EXHAUSTED: you have used the allowed related-work "
+        "searches. Stop calling arxiv_search and write the final report now, "
+        "using the related papers you already found."
+    )
 
     def system_prompt(self) -> str:
         headings = "\n".join(f"## {h}" for h in REPORT_HEADINGS)
@@ -48,7 +56,9 @@ Requirements:
 - "Key Claims & Evidence": one bullet per claim, with the verdict in bold
   (e.g. **[supported]**) and a short evidence note.
 - "Related Work": call arxiv_search (1-3 queries is fine) to find 2-4
-  genuinely related papers and link each with its arXiv id/title.
+  genuinely related papers and link each with its arXiv id/title. Prefer
+  issuing your searches in ONE response. If you receive the message
+  "SEARCH BUDGET EXHAUSTED", write the report immediately without more calls.
 - "Relevance to My Research Direction": a **score /10** plus 2-4 sentences
   justifying it against this focus: {RESEARCH_FOCUS}
 - If the Critic output is unavailable, say so honestly in Limitations.
@@ -56,6 +66,31 @@ Requirements:
 
 Output ONLY the Markdown report (no extra commentary before or after).
 """
+
+    def run(self, board):
+        """Wrap arxiv_search with a hard call budget so a looping LLM terminates.
+
+        Real-world regression: the model kept issuing related-work searches
+        until the tool-round cap raised LLMError and killed the whole run.
+        With this wrapper, the tool itself answers "SEARCH BUDGET EXHAUSTED"
+        once the budget is spent - termination is deterministic, independent
+        of model behavior.
+        """
+        spec = self.registry.get("arxiv_search")
+        original = spec.func
+        remaining = {"n": self.RELATED_WORK_BUDGET}
+
+        def budgeted(query, max_results=5):
+            if remaining["n"] <= 0:
+                return self.BUDGET_MESSAGE
+            remaining["n"] -= 1
+            return original(query, max_results=max_results)
+
+        spec.func = budgeted
+        try:
+            return super().run(board)
+        finally:
+            spec.func = original  # the registry is shared; always restore
 
     def user_context(self, board) -> str:
         info = load_artifact_json(board, "researcher_output") or {}

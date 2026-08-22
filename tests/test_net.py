@@ -1,4 +1,4 @@
-"""Tests for paperflow.tools.net: throttling, downloads, PDF extraction."""
+"""Tests for paperflow.tools.net: throttling, downloads, PDF extraction, retry."""
 
 from __future__ import annotations
 
@@ -6,8 +6,21 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 
 from paperflow.tools import net
+
+
+def make_response(status: int, payload: bytes = b"ok"):
+    class FakeResponse:
+        status_code = status
+        content = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(f"{self.status_code} error", response=self)
+
+    return FakeResponse()
 
 
 class FakeTime:
@@ -81,3 +94,36 @@ def test_download_pdf_invalid_url():
 
     with pytest.raises(ToolNetError):
         net.download_pdf("not-a-url", Path("."), timeout=5)
+
+
+def test_http_get_bytes_retries_on_429_then_succeeds(monkeypatch):
+    """arXiv rate limits surface as 429; the client must retry with backoff."""
+    fake = FakeTime()
+    monkeypatch.setattr(net, "time", fake)
+    calls = {"n": 0}
+
+    def fake_get(url, timeout, headers):
+        calls["n"] += 1
+        return make_response(429 if calls["n"] < 3 else 200)
+
+    monkeypatch.setattr(net.requests, "get", fake_get)
+    data = net.http_get_bytes("https://export.arxiv.org/api/query?x=1", timeout=5)
+    assert data == b"ok"
+    assert calls["n"] == 3
+    assert fake.sleeps == [8.0, 16.0]  # backoff: 8s, 16s
+
+
+def test_http_get_bytes_does_not_retry_client_errors(monkeypatch):
+    fake = FakeTime()
+    monkeypatch.setattr(net, "time", fake)
+    calls = {"n": 0}
+
+    def fake_get(url, timeout, headers):
+        calls["n"] += 1
+        return make_response(404)
+
+    monkeypatch.setattr(net.requests, "get", fake_get)
+    with pytest.raises(requests.HTTPError):
+        net.http_get_bytes("https://x.example/404", timeout=5)
+    assert calls["n"] == 1  # 404 is not retryable
+    assert fake.sleeps == []

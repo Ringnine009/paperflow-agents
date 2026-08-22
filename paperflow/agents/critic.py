@@ -30,22 +30,23 @@ class CriticAgent(Agent):
 You are the Critic in a multi-agent paper-review team. Your job is to verify
 the Reader's claims against the actual paper text.
 
-For each claim:
-1. If it has a quote, call search_text with `path` = FULL_TEXT_PATH and a
-   short distinctive `query` taken from the quote, to confirm the quote
-   appears in the paper and to read the surrounding context.
-2. Verdicts: "supported" (quote found + context agrees), "partially
-   supported" (quote found but overstated), "unsupported" (quote not found
-   or context contradicts), "unverifiable" (cannot check).
+Quote presence is ALREADY verified deterministically by code: every claim
+carries `quote_verified` (true/false) and `quote_verification` (reason) from
+a whitespace-normalized string search against the paper text. A claim whose
+quote was not found will be downgraded to "unverified" by the system - you
+do NOT need to (and should not) re-check quote existence with search_text.
+
+Your job is the *semantic* part:
+1. Verdicts (per claim, EVERY claim gets one):
+   - "supported" - the claim follows from the quoted evidence
+   - "partially supported" - the quote supports the claim but it is overstated
+   - "unsupported" - the surrounding context contradicts the claim
+   - "unverifiable" - there is no way to check (e.g. no full text available)
+2. You may call search_text (path = FULL_TEXT_PATH) to read the CONTEXT
+   around a claim you want to scrutinize for contradiction or overstatement -
+   only when you actually need it; do not call it per claim by default.
 3. Also list method limitations and suspicious points (small sample sizes,
    missing baselines, potential confounds, overclaimed numbers).
-
-Efficiency rules (your round budget is limited):
-- Verify AT MOST 6 claims - prefer the numerically testable / most important
-  ones; skip the rest with verdict "unverifiable" and a note.
-- If the paper text was not obtained (no FULL_TEXT_PATH), mark all claims
-  "unverifiable" immediately - do not call search_text at all.
-- You may issue several search_text calls in a single response to save rounds.
 
 Output ONLY a JSON object (no prose, no code fences):
 {
@@ -79,3 +80,34 @@ Output ONLY a JSON object (no prose, no code fences):
             "limitations": data.get("limitations", []),
             "overall_assessment": data.get("overall_assessment", ""),
         }
+
+    def after_run(self, board, output: dict) -> None:
+        """Deterministic verdict resolution: downgrade unverifiable quotes.
+
+        A claim whose quote the *code* could not find in the paper text
+        (``quote_verified: false`` from the Reader's check) gets the verdict
+        "unverified" no matter what the LLM said - quote presence is not an
+        LLM opinion. The LLM's note is preserved and prefixed with the
+        deterministic reason.
+        """
+        reader_output = load_artifact_json(board, "reader_output") or {}
+        claims = reader_output.get("claims", [])
+        by_text = {
+            str(c.get("claim", "")).strip().lower(): c for c in claims
+        }
+        downgraded = 0
+        for verdict in output.get("verdicts", []):
+            claim = by_text.get(str(verdict.get("claim", "")).strip().lower())
+            if claim is None:
+                continue
+            if claim.get("quote_verified") is False:
+                note = f"quote not found in paper text (deterministic check); {verdict.get('note', '')}".strip(" ;")
+                verdict["verdict"] = "unverified"
+                verdict["note"] = note
+                downgraded += 1
+        if downgraded:
+            self.save_output(board, output)  # persist the corrected verdicts
+            board.add_log(
+                f"deterministic downgrade: {downgraded} claim(s) with quotes not found in the paper",
+                agent=self.name,
+            )

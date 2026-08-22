@@ -10,6 +10,51 @@ from paperflow.core.jsonutil import json_dumps
 _WHITESPACE = re.compile(r"\s+")
 
 
+def normalize_ws(text: str) -> str:
+    """Collapse every whitespace run to a single space, lowercased.
+
+    Used by quote verification so that a quote extracted across wrapped
+    lines ("win rate\n44.2%") still matches the source text.
+    """
+    return _WHITESPACE.sub(" ", text).strip().lower()
+
+
+def verify_quote(full_text: str, quote: str, min_chars: int = 4) -> dict:
+    """Deterministic quote-presence check against the paper text.
+
+    Whitespace-normalized and case-insensitive. This is a *code* guarantee:
+    ``found`` is True only when the (normalized) quote literally occurs in
+    the full text - no LLM involved.
+
+    Returns ``{"found": bool, "reason": str}``.
+    """
+    if not quote or not quote.strip():
+        return {"found": False, "reason": "empty quote"}
+    needle = normalize_ws(quote)
+    if len(needle) < min_chars:
+        return {"found": False, "reason": "quote too short to verify"}
+    haystack = normalize_ws(full_text)
+    if not haystack:
+        return {"found": False, "reason": "no full text available"}
+    if needle in haystack:
+        return {"found": True, "reason": "quote found verbatim (whitespace-normalized)"}
+    return {"found": False, "reason": "quote not found in the paper text"}
+
+
+def verify_claims(full_text: str, claims: list[dict]) -> list[dict]:
+    """Annotate every claim with its deterministic verification result.
+
+    Each claim dict gains ``quote_verified`` (bool) and
+    ``quote_verification`` (reason string). Claims without a quote are
+    marked not verified, so downstream stages never assume LLM provenance.
+    """
+    for claim in claims:
+        result = verify_quote(full_text, claim.get("quote", ""))
+        claim["quote_verified"] = result["found"]
+        claim["quote_verification"] = result["reason"]
+    return claims
+
+
 def search_text(path: str, query: str, window: int = 300, max_hits: int = 3) -> str:
     """Find passages of `query` in the paper text file at `path`.
 
