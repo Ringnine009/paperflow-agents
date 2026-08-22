@@ -80,9 +80,13 @@ shared, human-readable task board:
   loop: send conversation + schemas → execute requested tools via the
   registry → feed results back → repeat until a final answer or the round
   budget is exhausted.
-- **Full text never round-trips through the LLM** — PDF text is extracted
-  to a content-addressed file and only *paths + previews* go into the
-  conversation, keeping token cost low and quoting verifiable.
+- **Full text is extracted once into a content-addressed file** — the
+  Researcher turns the PDF into plain text a single time and stores it on
+  the board. The Reader receives the (truncated) full text in its context
+  to ground its claims; the Researcher, Critic and Synthesizer only ever
+  exchange *paths and previews*, keeping token cost low and quotes
+  checkable. Every Reader quote is then verified deterministically against
+  the stored text (see below).
 - **Graceful degradation** — the Critic is optional: if fact-checking fails,
   the pipeline continues and the report says so honestly.
 
@@ -98,7 +102,9 @@ python -m venv .venv
 .venv\Scripts\activate                # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
 
-cp .env.example .env                 # put your DEEPSEEK_API_KEY in .env
+# Windows:  copy .env.example .env
+# macOS/Linux: cp .env.example .env
+# then put your DEEPSEEK_API_KEY in .env
 ```
 
 ### CLI
@@ -134,11 +140,20 @@ python -m paperflow serve --port 8080
 # live, read the rendered report
 ```
 
+![PaperFlow dashboard (light theme)](docs/dashboard.png)
+![PaperFlow report view](docs/report.png)
+
+> The dashboard binds `127.0.0.1` by default and the fetch tools refuse
+> private/loopback/link-local URLs (SSRF guard). It is a local tool — do
+> not expose it publicly with `--host 0.0.0.0`. Runs interrupted by a
+> server restart are shown as **interrupted** (covered by tests).
+
 ### Tests
 
 ```bash
 python -m pytest                      # offline suite (no network, fake LLM)
 python -m pytest -m smoke             # real arXiv / Crossref API smoke tests
+node tests/test_markdown.mjs          # dashboard markdown renderer (tables) — not part of pytest
 ```
 
 ---
@@ -146,27 +161,30 @@ python -m pytest -m smoke             # real arXiv / Crossref API smoke tests
 ## Example output (excerpt)
 
 Running the **author's own werewolf paper** (DOI `10.54254/2753-8818/2026.DL34010`)
-produces a report like this (full sample under `examples/`):
+produces a report like this — the first 20 lines are copied verbatim from
+[`examples/werewolf-dbn/report.md`](examples/werewolf-dbn/report.md):
 
 ```markdown
 # Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning
 
-> Zhenxiao Guo · Tongji University · 2026-06 · DOI: 10.54254/2753-8818/2026.DL34010
-
 ## Overview
-...
+
+This paper proposes a framework combining a **Dynamic Belief Network (DBN)** and a **Deep-Thinking Token Ratio (DTR) probe** to address two longstanding problems in LLM-powered multi-agent social deduction: recursive agreement between homogeneous agents and stable detection of deception. The framework is evaluated in nine-player Werewolf across 3000 simulated games (six configurations × 500 games) using DeepSeek-V3.2 agents. The DBN maintains per-player suspicion estimates via exponential moving average (EMA) smoothing (α=0.3), while the DTR probe uses logit-lens to measure Jensen-Shannon divergence across transformer layers of a separate probe model (Qwen2.5-3B-Instruct) as a proxy for cognitive load. Results show that combining DBN with MaKTO-Proxy reasoning raises villager win rate from 44.2% to 68.8%, and adding DTR further improves vote accuracy (to 66.6%) but reduces survival, revealing a non-monotonic relationship between individual capability and collective payoff, interpreted through the lens of the handicap principle.
+
+## Method
+
+The framework consists of three modules combined across six configurations (A–F):
+
+1. **MaKTO-Proxy**: few-shot chain-of-thought prompting to elicit reasoning.
+2. **Dynamic Belief Network (DBN)**: per-player suspicion estimates updated each round via EMA smoothing with α=0.3, designed to dampen the positive-feedback loop between homogeneous models.
+3. **Deep-Thinking Token Ratio (DTR) probe**: computes the average Jensen-Shannon divergence between layerwise logit-lens distributions of a separate probe model (Qwen2.5-3B-Instruct) to estimate cognitive load of utterances, relying on cross-architecture inference.
+
+Experiments run 500 games per configuration in nine-player Werewolf with DeepSeek-V3.2 agents. Metrics include villager win rate, vote accuracy, mean survival rounds, and Brier Score convergence. Sensitivity analysis on α (0.1/0.3/0.5) is conducted under Configuration C.
 
 ## Key Claims & Evidence
-- **The unassisted baseline win rate is 44.2%.** **[supported]** — Confirmed in Table 2 (Group A).
-- **Combining MaKTO-Proxy and DBN increases win rate to 68.8%.** **[supported]** — Verbatim quote found: "Group E (MaKTO + DBN, 68.8%) ...".
 
-## Related Work
-- [Werewolf Arena: A Case Study in LLM Evaluation via Social Deduction](https://arxiv.org/abs/2407.13943)
-- [Theory of Mind for Multi-Agent Collaboration via Large Language Models](https://arxiv.org/abs/2310.10701)
-- ...
-
-## Relevance to My Research Direction
-**Score: 8/10** — sits squarely at the intersection of multi-agent social reasoning ...
+- **Unassisted baseline achieves 44.2% villager win rate, lower than random.** **[supported]** — Table 2 confirms Group A win rate 44.2%; quote found verbatim.
+- **Combining MaKTO-Proxy and DBN increases win rate to 68.8%.** **[supported]** — Table 2 confirms Group E win rate 68.8%, a ~24.6 pp increase over baseline.
 ```
 
 ---

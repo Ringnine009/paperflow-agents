@@ -118,17 +118,26 @@ Output ONLY the Markdown report (no extra commentary before or after).
     def parse_output(self, content: str) -> str:
         # the Synthesizer returns Markdown, not JSON
         text = content.strip()
-        # drop LLM preambles ("Let me compose the final review...") - the
-        # report must start at the first H1 heading
-        heading = text.find("# ")
-        if heading > 0:
-            text = text[heading:].strip()
+        # drop LLM preambles ("Let me compose the final review...") - keep
+        # everything from the first markdown heading onwards. Line-anchored
+        # so an H2 start ("## Overview") is never corrupted.
+        import re
+
+        heading = re.search(r"^#{1,3}\s+\S", text, re.MULTILINE)
+        if heading:
+            text = text[heading.start():].strip()
         return text
 
     def summarize(self, output: str) -> str:
         return output[:120].replace("\n", " ") + ("..." if len(output) > 120 else "")
 
     def save_output(self, board, output: str) -> Path:
+        # guarantee the report opens with an H1 title: some runs omit it
+        info = load_artifact_json(board, "researcher_output") or {}
+        title = str(info.get("title") or "").strip()
+        if not output.lstrip().startswith("# "):
+            heading = f"# {title}" if title else "# Paper Review"
+            output = f"{heading}\n\n{output.lstrip()}"
         report_dir = board.path.parent
         report_dir.mkdir(parents=True, exist_ok=True)
         path = report_dir / "report.md"

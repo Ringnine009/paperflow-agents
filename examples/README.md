@@ -12,8 +12,13 @@ What is in each folder:
 
 - `report.md` — the final structured review written by the Synthesizer
 - `board.json` — the persisted task board (agent states, artifacts, log);
-  note it does **not** contain the full text (that lives in the run's
-  `artifacts/` directory, which is git-ignored)
+  the `artifacts[]` and `report` paths are **relative to this directory** so
+  the sample is self-contained after cloning (the actual JSON/text artifacts
+  live in `artifacts/` and are committed alongside)
+- `artifacts/` — the run's stored outputs: `researcher_output.json`,
+  `full_text.txt` (paper body), `reader_output.json` (claims with
+  deterministic `quote_verified` annotations), `critic_output.json`
+  (verdicts)
 
 To reproduce a run yourself:
 

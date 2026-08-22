@@ -51,12 +51,17 @@ Your job is the *semantic* part:
 Output ONLY a JSON object (no prose, no code fences):
 {
   "verdicts": [
-    {"claim": "str", "verdict": "supported|partially supported|unsupported|unverifiable",
+    {"claim_index": 0, "claim": "str",
+     "verdict": "supported|partially supported|unsupported|unverifiable",
      "evidence_quote": "str", "note": "str"}
   ],
   "limitations": [{"issue": "str", "severity": "high|medium|low", "why": "str"}],
   "overall_assessment": "str"
 }
+
+claim_index is MANDATORY for every verdict: the 0-based index of the claim
+in the CLAIMS TO VERIFY list above. It lets the system align your verdict
+with the right claim even when you paraphrase it.
 """
 
     def user_context(self, board) -> str:
@@ -89,6 +94,11 @@ Output ONLY a JSON object (no prose, no code fences):
         "unverified" no matter what the LLM said - quote presence is not an
         LLM opinion. The LLM's note is preserved and prefixed with the
         deterministic reason.
+
+        Alignment is by ``claim_index`` first (the Critic is instructed to
+        echo it) and falls back to exact claim wording - two independent LLM
+        calls phrase the same claim differently, so wording alone is not a
+        reliable key.
         """
         reader_output = load_artifact_json(board, "reader_output") or {}
         claims = reader_output.get("claims", [])
@@ -97,7 +107,7 @@ Output ONLY a JSON object (no prose, no code fences):
         }
         downgraded = 0
         for verdict in output.get("verdicts", []):
-            claim = by_text.get(str(verdict.get("claim", "")).strip().lower())
+            claim = self._match_claim(verdict, claims, by_text)
             if claim is None:
                 continue
             if claim.get("quote_verified") is False:
@@ -111,3 +121,13 @@ Output ONLY a JSON object (no prose, no code fences):
                 f"deterministic downgrade: {downgraded} claim(s) with quotes not found in the paper",
                 agent=self.name,
             )
+
+    @staticmethod
+    def _match_claim(verdict: dict, claims: list[dict], by_text: dict) -> dict | None:
+        """Resolve a verdict to its reader claim: by claim_index, then wording."""
+        index = verdict.get("claim_index")
+        if isinstance(index, str) and index.strip().isdigit():
+            index = int(index)
+        if isinstance(index, int) and 0 <= index < len(claims):
+            return claims[index]
+        return by_text.get(str(verdict.get("claim", "")).strip().lower())

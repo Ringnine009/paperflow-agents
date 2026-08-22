@@ -82,8 +82,8 @@ def test_download_pdf_uses_cache(tmp_path: Path, monkeypatch):
         return payload
 
     monkeypatch.setattr(net, "http_get_bytes", fake_get_bytes)
-    dest1 = net.download_pdf("https://x.example/a.pdf", tmp_path / "cache", timeout=10)
-    dest2 = net.download_pdf("https://x.example/a.pdf", tmp_path / "cache", timeout=10)
+    dest1 = net.download_pdf("https://example.com/a.pdf", tmp_path / "cache", timeout=10)
+    dest2 = net.download_pdf("https://example.com/a.pdf", tmp_path / "cache", timeout=10)
     assert dest1 == dest2
     assert called["n"] == 1  # second call served from cache
     assert dest1.read_bytes() == payload
@@ -127,3 +127,28 @@ def test_http_get_bytes_does_not_retry_client_errors(monkeypatch):
         net.http_get_bytes("https://x.example/404", timeout=5)
     assert calls["n"] == 1  # 404 is not retryable
     assert fake.sleeps == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost/admin",
+        "http://127.0.0.1:8000/secret",
+        "http://10.0.0.5/x",
+        "http://192.168.1.1/x",
+        "http://172.16.0.1/x",
+        "http://169.254.169.254/latest/meta-data/",  # cloud metadata endpoint
+        "http://[::1]/x",
+        "http://0.0.0.0/x",
+    ],
+)
+def test_assert_http_url_blocks_private_and_link_local(url: str):
+    """SSRF guard: fetch tools must never touch loopback/private/link-local."""
+    with pytest.raises(net.ToolNetError):
+        net._assert_http_url(url)
+
+
+def test_assert_http_url_allows_public_hosts():
+    net._assert_http_url("https://export.arxiv.org/api/query?id_list=1706.03762")
+    net._assert_http_url("https://api.crossref.org/works/10.1234/x")
+    net._assert_http_url("https://example.com/paper.pdf")

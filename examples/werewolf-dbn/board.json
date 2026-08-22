@@ -1,108 +1,120 @@
 {
-  "id": "pf-20260821-122144-702523",
+  "id": "pf-20260822-042536-5969ce",
   "input": {
     "raw": "10.54254/2753-8818/2026.DL34010",
     "kind": "doi",
     "value": "10.54254/2753-8818/2026.DL34010",
     "pdf_override": "outputs\\_demo_input\\werewolf-paper.pdf"
   },
-  "created_at": "2026-08-21T12:21:44+00:00",
-  "updated_at": "2026-08-21T12:22:49+00:00",
+  "created_at": "2026-08-22T04:25:36+00:00",
+  "updated_at": "2026-08-22T04:26:40+00:00",
   "status": "done",
   "current_stage": "synthesizer",
   "log": [
     {
-      "ts": "2026-08-21T12:21:44+00:00",
+      "ts": "2026-08-22T04:25:36+00:00",
       "level": "info",
       "agent": null,
       "message": "orchestrator: pipeline started with 4 agents"
     },
     {
-      "ts": "2026-08-21T12:21:44+00:00",
+      "ts": "2026-08-22T04:25:36+00:00",
       "level": "info",
       "agent": "researcher",
       "message": "agent 'researcher' started"
     },
     {
-      "ts": "2026-08-21T12:21:50+00:00",
+      "ts": "2026-08-22T04:25:43+00:00",
       "level": "info",
       "agent": "orchestrator",
       "message": "artifact 'researcher_output' saved: researcher_output.json"
     },
     {
-      "ts": "2026-08-21T12:21:50+00:00",
+      "ts": "2026-08-22T04:25:43+00:00",
       "level": "info",
       "agent": "orchestrator",
       "message": "artifact 'full_text' saved: full_text.txt"
     },
     {
-      "ts": "2026-08-21T12:21:50+00:00",
+      "ts": "2026-08-22T04:25:43+00:00",
       "level": "info",
       "agent": "researcher",
       "message": "full text materialized (21902 chars)"
     },
     {
-      "ts": "2026-08-21T12:21:50+00:00",
+      "ts": "2026-08-22T04:25:43+00:00",
       "level": "info",
       "agent": "researcher",
       "message": "agent 'researcher' finished: done"
     },
     {
-      "ts": "2026-08-21T12:21:50+00:00",
+      "ts": "2026-08-22T04:25:43+00:00",
       "level": "info",
       "agent": "reader",
       "message": "agent 'reader' started"
     },
     {
-      "ts": "2026-08-21T12:22:03+00:00",
+      "ts": "2026-08-22T04:25:57+00:00",
       "level": "info",
       "agent": "orchestrator",
       "message": "artifact 'reader_output' saved: reader_output.json"
     },
     {
-      "ts": "2026-08-21T12:22:03+00:00",
+      "ts": "2026-08-22T04:25:57+00:00",
+      "level": "info",
+      "agent": "orchestrator",
+      "message": "artifact 'reader_output' saved: reader_output.json"
+    },
+    {
+      "ts": "2026-08-22T04:25:57+00:00",
+      "level": "info",
+      "agent": "reader",
+      "message": "quote verification: 11/11 quotes found verbatim in full text"
+    },
+    {
+      "ts": "2026-08-22T04:25:57+00:00",
       "level": "info",
       "agent": "reader",
       "message": "agent 'reader' finished: done"
     },
     {
-      "ts": "2026-08-21T12:22:03+00:00",
+      "ts": "2026-08-22T04:25:57+00:00",
       "level": "info",
       "agent": "critic",
       "message": "agent 'critic' started"
     },
     {
-      "ts": "2026-08-21T12:22:22+00:00",
+      "ts": "2026-08-22T04:26:14+00:00",
       "level": "info",
       "agent": "orchestrator",
       "message": "artifact 'critic_output' saved: critic_output.json"
     },
     {
-      "ts": "2026-08-21T12:22:22+00:00",
+      "ts": "2026-08-22T04:26:14+00:00",
       "level": "info",
       "agent": "critic",
       "message": "agent 'critic' finished: done"
     },
     {
-      "ts": "2026-08-21T12:22:22+00:00",
+      "ts": "2026-08-22T04:26:14+00:00",
       "level": "info",
       "agent": "synthesizer",
       "message": "agent 'synthesizer' started"
     },
     {
-      "ts": "2026-08-21T12:22:49+00:00",
+      "ts": "2026-08-22T04:26:40+00:00",
       "level": "info",
       "agent": "orchestrator",
       "message": "final report written: report.md"
     },
     {
-      "ts": "2026-08-21T12:22:49+00:00",
+      "ts": "2026-08-22T04:26:40+00:00",
       "level": "info",
       "agent": "synthesizer",
       "message": "agent 'synthesizer' finished: done"
     },
     {
-      "ts": "2026-08-21T12:22:49+00:00",
+      "ts": "2026-08-22T04:26:40+00:00",
       "level": "info",
       "agent": null,
       "message": "orchestrator: pipeline complete"
@@ -111,53 +123,53 @@
   "agents": {
     "researcher": {
       "status": "done",
-      "started_at": "2026-08-21T12:21:44+00:00",
-      "finished_at": "2026-08-21T12:21:50+00:00",
+      "started_at": "2026-08-22T04:25:36+00:00",
+      "finished_at": "2026-08-22T04:25:43+00:00",
       "summary": "{\"title\": \"Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning\", \"authors\": [\"Zhenxiao Guo\"], \"abstract\": \"There are two longstanding problems in social deduction when us...",
       "error": null
     },
     "reader": {
       "status": "done",
-      "started_at": "2026-08-21T12:21:50+00:00",
-      "finished_at": "2026-08-21T12:22:03+00:00",
+      "started_at": "2026-08-22T04:25:43+00:00",
+      "finished_at": "2026-08-22T04:25:57+00:00",
       "summary": "{\"title\": \"Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning\", \"summary\": \"This paper proposes a framework combining a Dynamic Belief Network (DBN) and a Deep-Thinking ...",
       "error": null
     },
     "critic": {
       "status": "done",
-      "started_at": "2026-08-21T12:22:03+00:00",
-      "finished_at": "2026-08-21T12:22:22+00:00",
-      "summary": "{\"verdicts\": [{\"claim\": \"The unassisted baseline win rate is 44.2%.\", \"verdict\": \"supported\", \"evidence_quote\": \"winning at a rate of 44.2% that is lower than random\", \"note\": \"Quote slightly paraphra...",
+      "started_at": "2026-08-22T04:25:57+00:00",
+      "finished_at": "2026-08-22T04:26:14+00:00",
+      "summary": "{\"verdicts\": [{\"claim_index\": 0, \"claim\": \"The unassisted baseline achieves a 44.2% win rate by villagers, lower than random.\", \"verdict\": \"supported\", \"evidence_quote\": \"the vanilla baseline (Group A...",
       "error": null
     },
     "synthesizer": {
       "status": "done",
-      "started_at": "2026-08-21T12:22:22+00:00",
-      "finished_at": "2026-08-21T12:22:49+00:00",
-      "summary": "# Review: Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning  ## Overview  This paper (Gu...",
+      "started_at": "2026-08-22T04:26:14+00:00",
+      "finished_at": "2026-08-22T04:26:40+00:00",
+      "summary": "## Overview  This paper proposes a framework combining a **Dynamic Belief Network (DBN)** and a **Deep-Thinking Token Ra...",
       "error": null
     }
   },
   "artifacts": {
     "researcher_output": {
-      "path": "outputs\\pf-20260821-122144-3779de\\artifacts\\researcher_output.json",
+      "path": "artifacts/researcher_output.json",
       "description": "Locates the paper and gathers metadata + full text"
     },
     "full_text": {
-      "path": "outputs\\pf-20260821-122144-3779de\\artifacts\\full_text.txt",
+      "path": "artifacts/full_text.txt",
       "description": "paper body text (truncated)"
     },
     "reader_output": {
-      "path": "outputs\\pf-20260821-122144-3779de\\artifacts\\reader_output.json",
+      "path": "artifacts/reader_output.json",
       "description": "Parses the paper structure and extracts claims & data"
     },
     "critic_output": {
-      "path": "outputs\\pf-20260821-122144-3779de\\artifacts\\critic_output.json",
+      "path": "artifacts/critic_output.json",
       "description": "Fact-checks claims against the paper text"
     }
   },
   "report": {
-    "path": "outputs\\pf-20260821-122144-3779de\\report.md",
-    "preview": "# Review: Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning\n\n## Overview\n\nThis paper (Guo, 2026, DOI: 10.54254/2753-8818/2026.DL34010) addresses two persistent problems in LLM-powered multi-agent social deduction: recursive agreement among homogeneous agents and stable deception detection. The author proposes a framework combining a Dynamic Belief Network (DBN) — wh"
+    "path": "report.md",
+    "preview": "# Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning\n\n## Overview\n\nThis paper proposes a framework combining a **Dynamic Belief Network (DBN)** and a **Deep-Thinking Token Ratio (DTR) probe** to address two longstanding problems in LLM-powered multi-agent social deduction: recursive agreement between homogeneous agents and stable detection of deception. The framework"
   }
 }

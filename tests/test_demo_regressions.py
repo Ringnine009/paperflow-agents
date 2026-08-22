@@ -60,6 +60,34 @@ def test_synthesizer_strips_leading_prose():
     assert cleaned == markdown.strip()
 
 
+def test_synthesizer_parse_keeps_h2_when_no_h1():
+    """A report starting with an H2 heading must survive parsing unmutated."""
+    agent = SynthesizerAgent(build_default_registry(SETTINGS, ".cache-t"), FakeLLM(), SETTINGS)
+    out = agent.parse_output("Let me compose the final review.\n\n## Overview\nbody\n")
+    assert out == "## Overview\nbody"
+
+
+def test_synthesizer_report_gets_title_heading(tmp_path: Path, stub_network_tools):
+    """The report must always start with an H1 title, even if the LLM omits it."""
+    board = TaskBoard.create(
+        tmp_path / "run" / "board.json", parse_entry("https://arxiv.org/abs/2601.12345")
+    )
+    (tmp_path / "paper_info.json").write_text(
+        json.dumps({"title": "Some Interesting Paper", "authors": ["A"]}), encoding="utf-8"
+    )
+    board.set_artifact("researcher_output", str(tmp_path / "paper_info.json"), "")
+    (tmp_path / "reader_output.json").write_text(json.dumps({"summary": "s", "claims": []}), encoding="utf-8")
+    board.set_artifact("reader_output", str(tmp_path / "reader_output.json"), "")
+
+    llm = FakeLLM({"Synthesizer": [text_response("## Overview\nbody without an H1 title\n")]})
+    agent = SynthesizerAgent(stub_network_tools, llm, SETTINGS)
+    output = agent.run(board)
+
+    report = Path(board.report["path"]).read_text(encoding="utf-8")
+    assert report.startswith("# Some Interesting Paper")
+    assert "## Overview" in report
+
+
 def test_synthesizer_search_budget_terminates(tmp_path: Path, stub_network_tools):
     """A looping Synthesizer must be stopped deterministically by the search budget.
 

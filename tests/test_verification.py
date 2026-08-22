@@ -170,3 +170,58 @@ def test_critic_downgrades_unverified_quotes(tmp_path: Path):
     assert verdicts["hallucinated number"]["verdict"] == "unverified"
     assert "deterministic" in verdicts["hallucinated number"]["note"]
     assert "llm note" in verdicts["hallucinated number"]["note"]  # LLM note preserved
+
+
+def test_critic_downgrade_survives_claim_rephrasing(tmp_path: Path):
+    """Verdict->claim alignment must use claim_index, not exact wording.
+
+    Two independent LLM calls (Reader and Critic) phrase the same claim
+    differently; matching by text alone silently skips the downgrade.
+    """
+    board = make_board(tmp_path)
+    (tmp_path / "full_text.txt").write_text(FIXTURE_PAPER_TEXT, encoding="utf-8")
+    board.set_artifact("full_text", str(tmp_path / "full_text.txt"), "")
+    claims = [
+        {
+            "claim": "DBN raises the win rate",
+            "section": "Experiments",
+            "quote": "44.2% without beliefs and 68.8% with dynamic beliefs",
+            "quote_verified": True,
+        },
+        {
+            "claim": "hallucinated number",
+            "section": "Experiments",
+            "quote": "the win rate reaches 99.9%",
+            "quote_verified": False,
+        },
+    ]
+    (tmp_path / "reader_output.json").write_text(json.dumps({"claims": claims}), encoding="utf-8")
+    board.set_artifact("reader_output", str(tmp_path / "reader_output.json"), "")
+
+    llm = FakeLLM(
+        {
+            "Critic": [
+                text_response(
+                    json.dumps(
+                        {
+                            "verdicts": [
+                                {"claim_index": 0, "claim": "completely rephrased wording A",
+                                 "verdict": "supported", "evidence_quote": "q", "note": ""},
+                                {"claim_index": 1, "claim": "completely rephrased wording B",
+                                 "verdict": "supported", "evidence_quote": "q", "note": "llm note"},
+                            ],
+                            "limitations": [],
+                            "overall_assessment": "ok",
+                        }
+                    )
+                )
+            ]
+        }
+    )
+    agent = CriticAgent(build_default_registry(SETTINGS, tmp_path / "cache"), llm, SETTINGS)
+    output = agent.run(board)
+
+    # claim_index wins over the (mismatched) wording
+    assert output["verdicts"][0]["verdict"] == "supported"
+    assert output["verdicts"][1]["verdict"] == "unverified"
+    assert "llm note" in output["verdicts"][1]["note"]
