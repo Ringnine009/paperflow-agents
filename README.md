@@ -145,8 +145,10 @@ python -m paperflow serve --port 8080
 ![PaperFlow verification view](docs/verification-v5.png)
 
 The dashboard is **bilingual (EN / 中文, toggle top-right, default English)**,
-with three tabs: **Task board** (live agent states + a color-coded, per-agent
-activity log), **Report** (rendered review) and **Verification** — a
+with three tabs: **Task board** (live agent states, an **execution timeline**
+of the four agents, and a color-coded per-agent activity log), **Report**
+(rendered review; claims that appear in the verification data get clickable
+`[#n]` markers that jump to their verification card) and **Verification** — a
 per-claim view of the deterministic quote check: every claim's quote,
 whether the code found it verbatim in the paper text, where it was found,
 and the critic's verdict.

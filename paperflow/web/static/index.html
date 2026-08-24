@@ -136,6 +136,28 @@
   .claim-ctx { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px;
                color: var(--muted); }
   .verify-note { color: var(--muted); font-size: 11px; font-style: italic; margin-top: 10px; }
+  /* execution timeline */
+  .timeline { margin: 0 0 14px; }
+  .timeline h2 { margin-bottom: 8px; }
+  .tl-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .tl-label { width: 96px; font-size: 11px; color: var(--muted); flex-shrink: 0; text-align: right; }
+  .tl-track { flex: 1; min-width: 0; height: 20px; background: var(--panel2);
+              border: 1px solid var(--border); border-radius: 4px; position: relative; overflow: hidden; }
+  .tl-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; min-width: 4px;
+            max-width: 100%; display: flex; align-items: center; padding: 0 6px; font-size: 10px;
+            color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-wait { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px;
+             font-size: 10px; color: var(--muted); font-style: italic; }
+  /* report claim markers + verification flash */
+  .claim-ref { cursor: pointer; color: var(--accent); font-size: 10px; vertical-align: super;
+               margin-left: 4px; border: 1px solid var(--border-strong); border-radius: 4px;
+               padding: 0 3px; font-family: "JetBrains Mono", Consolas, monospace; user-select: none; }
+  .claim-ref:hover { background: var(--accent); color: #fff; }
+  @keyframes claimFlash { 0%, 100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px var(--accent); } }
+  .claim-card.flash { animation: claimFlash 1.1s ease-in-out; }
+  /* richer empty states */
+  .empty-guide { color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px 0; }
+  .empty-guide b { color: var(--text); }
 </style>
 </head>
 <body>
@@ -167,10 +189,12 @@
 </main>
 
 <script src="/static/markdown.js"></script>
+<script src="/static/timeline.js"></script>
 <script>
 const { esc, md } = window.PaperFlowMD;
+const { buildTimeline, linkClaims } = window.PaperFlowTL;
 const $ = (id) => document.getElementById(id);
-let current = null, pollTimer = null, LANG = "en", lastBoard = null;
+let current = null, pollTimer = null, LANG = "en", lastBoard = null, lastVerification = null;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -221,6 +245,17 @@ const I18N = {
     status_pending: "pending",
     agent_system: "system",
     claim_n: "(claim {n})",
+    timeline: "Execution timeline",
+    tl_fetch: "fetch paper",
+    tl_claims: "extract claims",
+    tl_verify: "verify quotes",
+    tl_report: "write report",
+    tl_waiting: "waiting",
+    report_unavailable: "Report not available for this run.",
+    verification_unavailable: "Verification data not available for this run.",
+    runs_empty_guide: "No runs yet. <b>Paste an arXiv URL, DOI or PDF path above</b> to start the first review.",
+    detail_guide: "<b>No run selected.</b><br>Pick a run from the left, or paste an arXiv URL / DOI / local PDF above to start a new review. The task board, report, timeline and quote verification will appear here.",
+    claim_go: "go to verification",
   },
   zh: {
     title: "PaperFlow · 多智能体论文审阅",
@@ -261,6 +296,17 @@ const I18N = {
     status_pending: "等待",
     agent_system: "系统",
     claim_n: "（论断 {n}）",
+    timeline: "执行时间线",
+    tl_fetch: "获取论文",
+    tl_claims: "提取论断",
+    tl_verify: "核验引文",
+    tl_report: "撰写报告",
+    tl_waiting: "等待",
+    report_unavailable: "该运行没有可用报告。",
+    verification_unavailable: "该运行没有可用核验数据。",
+    runs_empty_guide: "暂无运行。<b>在上方粘贴 arXiv 链接、DOI 或 PDF 路径</b>开始第一篇审阅。",
+    detail_guide: "<b>尚未选择运行。</b><br>从左侧选择一条运行，或在上方粘贴 arXiv 链接 / DOI / 本地 PDF 开始新的审阅。任务板、报告、时间线与引文核验将显示在这里。",
+    claim_go: "跳转到核验",
   },
 };
 
@@ -274,6 +320,7 @@ function t(key, vars) {
 function statusLabel(raw) { return t("status_" + raw) || raw; }
 
 function setText(id, text) { const el = $(id); if (el) el.textContent = text; }
+function setHtml(id, html) { const el = $(id); if (el) el.innerHTML = html; }
 
 function applyStatic() {
   document.title = t("title");
@@ -285,9 +332,9 @@ function applyStatic() {
   setText("runs-heading", t("runs"));
   // runs-empty / detail-empty are initial placeholders only and get
   // destroyed once the lists render - guard against null
-  setText("runs-empty", t("no_runs"));
+  setHtml("runs-empty", `<div class="empty-guide">${t("runs_empty_guide")}</div>`);
   setText("detail-title", t("select_run"));
-  setText("detail-empty", t("detail_placeholder"));
+  setHtml("detail-empty", `<div class="empty-guide">${t("detail_guide")}</div>`);
   setText("lang-btn", LANG === "zh" ? "EN" : "中文");
 }
 
@@ -295,7 +342,7 @@ function toggleLang() {
   LANG = LANG === "zh" ? "en" : "zh";
   try { localStorage.setItem("pf-lang", LANG); } catch (e) { /* ignore */ }
   applyStatic();
-  refresh();
+  refresh(true); // force re-render so the detail view follows the language
 }
 
 /* ------------------------------------------------------------------ */
@@ -340,7 +387,10 @@ function statusBadge(s) { return `<span class="badge ${s}">${esc(statusLabel(s))
 
 function renderRuns(runs) {
   const box = $("runs");
-  if (!runs.length) { box.innerHTML = `<div class="empty">${esc(t("no_runs"))}</div>`; return; }
+  if (!runs.length) {
+    box.innerHTML = `<div class="empty-guide">${t("runs_empty_guide")}</div>`;
+    return;
+  }
   box.innerHTML = runs.map(r => `
     <div class="run" data-id="${r.id}" onclick="selectRun('${r.id}')">
       <div class="id">${esc(r.id)} · ${esc(r.input.kind)}</div>
@@ -415,14 +465,79 @@ function renderDetail(board) {
     </div>
     <div id="board-view">
       <div id="report-summary"></div>
+      <div id="timeline"></div>
       <h2>${esc(t("activity_log"))}</h2>
       <div class="log">${renderLog(board.log)}</div>
     </div>
     <div id="report-view"><div class="report"></div></div>
     <div id="verification-view"><div class="empty">${esc(t("loading"))}</div></div>`;
-  if (board.report) loadReport(board.id);
+  renderTimeline(board);
+  if (board.report) {
+    loadReport(board.id);
+  } else {
+    const node = $("report-view") ? $("report-view").querySelector(".report") : null;
+    if (node) node.innerHTML = `<div class="empty">${esc(t("report_unavailable"))}</div>`;
+    renderReportSummary(null);
+  }
   loadVerification(board.id);
   if (board.status === "running") startPolling(); else stopPolling();
+}
+
+/* ---- execution timeline (from agent started_at/finished_at) ---- */
+const TL_MILESTONE = { researcher: "tl_fetch", reader: "tl_claims", critic: "tl_verify", synthesizer: "tl_report" };
+
+function renderTimeline(board) {
+  const box = $("timeline");
+  if (!box) return;
+  const tl = buildTimeline(board.agents || {}, Date.now());
+  const rows = tl.rows.map(r => {
+    const style = agentStyle(r.name);
+    const hasBar = r.pctWidth > 0;
+    let track;
+    if (hasBar) {
+      const milestone = (r.status === "done" && TL_MILESTONE[r.name]) ? t(TL_MILESTONE[r.name]) : "";
+      track = `<div class="tl-track"><div class="tl-bar" style="left:${r.pctLeft.toFixed(1)}%;width:${r.pctWidth.toFixed(1)}%;background:${style.color}">${esc(milestone)}</div></div>`;
+    } else {
+      track = `<div class="tl-track"><div class="tl-wait">${esc(t("tl_waiting"))}</div></div>`;
+    }
+    return `<div class="tl-row"><div class="tl-label" style="color:${style.color}">${esc(style.label)}</div>${track}</div>`;
+  }).join("");
+  box.innerHTML = `<div class="timeline"><h2>${esc(t("timeline"))}</h2>${rows}</div>`;
+}
+
+/* ---- report <-> verification claim linking ---- */
+function linkReportClaims() {
+  const container = $("report-view") ? $("report-view").querySelector(".report") : null;
+  if (!container || !lastVerification || !lastVerification.claims) return;
+  const claims = lastVerification.claims || [];
+  // remove previously injected markers (re-render safe)
+  container.querySelectorAll(".claim-ref").forEach(n => n.remove());
+  const blocks = Array.from(container.querySelectorAll("li, p"));
+  const blockTexts = blocks.map(b => b.innerText);
+  const matches = linkClaims(blockTexts, claims);
+  matches.forEach(m => {
+    const block = blocks[m.blockIndex];
+    if (!block) return;
+    const mark = document.createElement("span");
+    mark.className = "claim-ref";
+    mark.textContent = `[#${m.claimIndex}]`;
+    mark.title = t("claim_go");
+    mark.addEventListener("click", (e) => {
+      e.stopPropagation();
+      jumpToClaim(m.claimIndex);
+    });
+    block.appendChild(mark);
+  });
+}
+
+function jumpToClaim(index) {
+  showTab("verification");
+  const cards = document.querySelectorAll(".claim-card");
+  const card = cards[index];
+  if (!card) return;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.classList.add("flash");
+  setTimeout(() => card.classList.remove("flash"), 1200);
 }
 
 function showTab(which) {
@@ -430,18 +545,25 @@ function showTab(which) {
     const btn = $(`tab-${tab}`);
     const view = $(`${tab}-view`);
     if (btn) btn.classList.toggle("active", tab === which);
-    if (view) view.style.display = tab === which ? "" : "none";
+    // explicit "block": "" would drop the inline style and let the
+    // stylesheet's `display: none` (initial hidden state) win again
+    if (view) view.style.display = tab === which ? "block" : "none";
   });
 }
 
 async function loadReport(id) {
+  const node = $("report-view") ? $("report-view").querySelector(".report") : null;
   try {
     const res = await fetch(`/api/runs/${id}/report`);
+    if (!res.ok) throw new Error("report fetch failed");
     const text = await res.text();
-    const node = $("report-view").querySelector(".report");
     if (node) node.innerHTML = md(text);
     renderReportSummary(text);
-  } catch { /* report not ready yet */ }
+    linkReportClaims();
+  } catch {
+    if (node) node.innerHTML = `<div class="empty">${esc(t("report_unavailable"))}</div>`;
+    renderReportSummary(null);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -456,7 +578,9 @@ function vBadge(quoteVerified) {
 function renderVerification(data) {
   const box = $("verification-view");
   if (!box) return;
+  lastVerification = data;
   renderAgentBadges(data);
+  linkReportClaims();
   const { total_count, verified_count, claims } = data;
   if (!total_count) {
     box.innerHTML = `<div class="empty">${esc(t("no_claims"))}</div>`;
@@ -496,21 +620,31 @@ function renderVerification(data) {
 }
 
 async function loadVerification(id) {
+  const box = $("verification-view");
   try {
     const data = await api(`/api/runs/${id}/verification`);
     renderVerification(data);
-  } catch { /* run may be gone */ }
+  } catch {
+    if (box) box.innerHTML = `<div class="empty">${esc(t("verification_unavailable"))}</div>`;
+  }
 }
 
 function toggleClaim(card) { card.classList.toggle("open"); }
 
-async function refresh() {
+async function refresh(force) {
   const { runs } = await api("/api/boards");
   renderRuns(runs);
-  if (current && runs.some(r => r.id === current)) {
-    const board = await api(`/api/runs/${current}`);
-    renderDetail(board);
+  if (!current || !runs.some(r => r.id === current)) return;
+  const board = await api(`/api/runs/${current}`);
+  // skip re-render when the run is unchanged: re-rendering would blank and
+  // refill the Report/Verification tabs every poll (visible flicker).
+  // `force` (language switch) always re-renders.
+  if (!force && lastBoard && lastBoard.id === board.id
+      && lastBoard.status === board.status
+      && lastBoard.updated_at === board.updated_at) {
+    return;
   }
+  renderDetail(board);
 }
 
 function startPolling() { if (!pollTimer) pollTimer = setInterval(refresh, 2000); }
