@@ -140,14 +140,21 @@ python -m paperflow serve --port 8080
 # live, read the rendered report
 ```
 
-![PaperFlow dashboard (light theme)](docs/dashboard.png)
-![PaperFlow report view](docs/report.png)
-![PaperFlow verification view](docs/verification.png)
+![PaperFlow dashboard with result cards (light theme)](docs/dashboard-v5.png)
+![PaperFlow board view: report summary + grouped agent log](docs/board-v5.png)
+![PaperFlow verification view](docs/verification-v5.png)
 
-The dashboard has three tabs: **Task board** (live agent states + log),
-**Report** (rendered review) and **Verification** — a per-claim view of the
-deterministic quote check: every claim's quote, whether the code found it
-verbatim in the paper text, where it was found, and the critic's verdict.
+The dashboard is **bilingual (EN / 中文, toggle top-right, default English)**,
+with three tabs: **Task board** (live agent states + a color-coded, per-agent
+activity log), **Report** (rendered review) and **Verification** — a
+per-claim view of the deterministic quote check: every claim's quote,
+whether the code found it verbatim in the paper text, where it was found,
+and the critic's verdict.
+
+Finished runs show their **results directly in the run list**: a report
+preview, a "✓ n/m quotes verified" badge and (for failed runs) the failing
+stage and reason. Selecting a run whose report is ready opens a **results
+summary card** at the top of the task board.
 
 > The dashboard binds `127.0.0.1` by default and the fetch tools refuse
 > private/loopback/link-local URLs (SSRF guard). It is a local tool — do

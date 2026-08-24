@@ -218,3 +218,64 @@ def test_verification_manager_reads_artifacts(tmp_path: Path):
     assert payload["total_count"] == 1
     assert payload["verified_count"] == 1
     assert payload["claims"][0]["verdict"] == "supported"
+
+
+# ---------------------------------------------------------------------------
+# Run-list result metadata (report preview, verification badge, failure)
+# ---------------------------------------------------------------------------
+
+def _make_board_with_results(tmp_path: Path, status: str = "done") -> str:
+    from paperflow.core.board import TaskBoard, make_run_id
+    from paperflow.ingest import parse_entry
+
+    run_id = make_run_id()
+    artifacts = tmp_path / "out" / run_id / "artifacts"
+    artifacts.mkdir(parents=True)
+    board = TaskBoard.create(
+        tmp_path / "out" / run_id / "board.json",
+        parse_entry("https://arxiv.org/abs/1706.03762"),
+        run_id=run_id,
+    )
+    reader_path = artifacts / "reader_output.json"
+    reader_path.write_text(
+        json.dumps({"claims": [
+            {"claim": "A", "quote": "q1", "quote_verified": True},
+            {"claim": "B", "quote": "q2", "quote_verified": False},
+        ]}),
+        encoding="utf-8",
+    )
+    critic_path = artifacts / "critic_output.json"
+    critic_path.write_text(
+        json.dumps({"verdicts": [{"claim_index": 0, "claim": "A", "verdict": "supported", "note": ""}]}),
+        encoding="utf-8",
+    )
+    board.set_artifact("reader_output", str(reader_path), "")
+    board.set_artifact("critic_output", str(critic_path), "")
+    report = tmp_path / "out" / run_id / "report.md"
+    report.write_text("# Some Paper Title\n\nOverview first line.\nSecond line.\n", encoding="utf-8")
+    board.set_report(str(report), "# Some Paper Title\n\nOverview first line.")
+    board.record_agent_end("reader", "done", summary="x")
+    if status == "failed":
+        board.record_agent_end("synthesizer", "failed", error="LLMError: tool loop exceeded 8 rounds")
+        board.set_status("failed", current_stage="synthesizer")
+    board.save()
+    return run_id
+
+
+def test_boards_summary_has_report_preview_and_verification(tmp_path: Path):
+    manager = RunManager(tmp_path / "out")
+    run_id = _make_board_with_results(tmp_path)
+    summary = manager.boards()[0]
+    assert summary["id"] == run_id
+    assert summary["report_preview"].startswith("# Some Paper Title")
+    assert summary["verification"] == {"verified_count": 1, "total_count": 2}
+    assert summary["failure"] is None
+
+
+def test_boards_summary_reports_failure_stage_and_error(tmp_path: Path):
+    manager = RunManager(tmp_path / "out")
+    _make_board_with_results(tmp_path, status="failed")
+    summary = manager.boards()[0]
+    assert summary["status"] == "failed"
+    assert summary["failure"]["stage"] == "synthesizer"
+    assert "LLMError" in summary["failure"]["error"]

@@ -112,7 +112,13 @@ class RunManager:
         return board.status
 
     def boards(self) -> list[dict]:
-        """Summaries of all runs, newest first."""
+        """Summaries of all runs, newest first.
+
+        Besides the board state, each summary carries the *result* metadata
+        the run list renders: a plain-text report preview, the deterministic
+        verification counts (badge) and - for failed runs - the failing
+        stage and error.
+        """
         summaries = []
         for board_file in sorted(self.out_dir.glob("*/board.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
@@ -129,9 +135,39 @@ class RunManager:
                     "created_at": board.created_at,
                     "updated_at": board.updated_at,
                     "active": board.id in self._threads,
+                    "report_preview": self._report_preview(board),
+                    "verification": self._verification_summary(board),
+                    "failure": self._failure_summary(board),
                 }
             )
         return summaries
+
+    @staticmethod
+    def _report_preview(board: TaskBoard, limit: int = 200) -> str | None:
+        """First ~200 chars of the final report, for the run-card preview."""
+        if not board.report or not Path(board.report["path"]).is_file():
+            return None
+        try:
+            return Path(board.report["path"]).read_text(encoding="utf-8")[:limit]
+        except OSError:
+            return None
+
+    def _verification_summary(self, board: TaskBoard) -> dict | None:
+        """{verified_count, total_count} from reader/critic artifacts, or None."""
+        reader_output = self._artifact_json(board, "reader_output")
+        if not reader_output:
+            return None
+        critic_output = self._artifact_json(board, "critic_output")
+        payload = align_claims(reader_output, critic_output)
+        return {"verified_count": payload["verified_count"], "total_count": payload["total_count"]}
+
+    @staticmethod
+    def _failure_summary(board: TaskBoard) -> dict | None:
+        """The first failed agent: {stage, error} - drives the run-card reason."""
+        for stage, entry in board.agents.items():
+            if entry.get("status") == "failed":
+                return {"stage": stage, "error": entry.get("error") or ""}
+        return None
 
     def board(self, run_id: str) -> TaskBoard:
         path = self.out_dir / run_id / "board.json"

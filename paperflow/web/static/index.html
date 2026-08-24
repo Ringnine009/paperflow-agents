@@ -11,14 +11,21 @@
     --border: rgba(0,0,0,0.08); --border-strong: rgba(0,0,0,0.14);
     --text: #17181c; --muted: #6d737c; --accent: #4f46e5;
     --ok: #16a34a; --warn: #b45309; --err: #dc2626;
+    /* per-agent log colors */
+    --agent-r: #4f46e5; --agent-g: #16a34a; --agent-o: #d97706; --agent-p: #9333ea;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.55 "Inter", "Segoe UI", system-ui, sans-serif; }
-  header { padding: 20px 28px; border-bottom: 1px solid var(--border);
-           display: flex; align-items: baseline; gap: 12px; background: var(--panel); }
+  header { padding: 16px 28px; border-bottom: 1px solid var(--border);
+           display: flex; align-items: center; justify-content: space-between;
+           gap: 12px; background: var(--panel); }
+  .head-left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
   header h1 { font-size: 18px; margin: 0; letter-spacing: -0.02em; }
-  header span { color: var(--muted); font-size: 12px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  #lang-btn { background: transparent; color: var(--muted); border: 1px solid var(--border-strong);
+              padding: 4px 14px; font-size: 12px; border-radius: 8px; cursor: pointer; }
+  #lang-btn:hover { color: var(--text); border-color: var(--accent); }
   main { max-width: 1100px; margin: 0 auto; padding: 24px 28px 60px; }
   .entry-row { display: flex; gap: 10px; }
   input[type=text] { flex: 1; background: var(--panel); color: var(--text);
@@ -28,7 +35,7 @@
     border: 0; border-radius: 8px; padding: 10px 18px; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
   .hint { color: var(--muted); font-size: 12px; margin: 8px 2px 0; }
-  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 20px; margin-top: 24px; }
+  .grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; margin-top: 24px; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   .panel { background: var(--panel); border: 1px solid var(--border);
            border-radius: 12px; padding: 16px; }
@@ -40,22 +47,48 @@
   .run .id { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px;
              color: var(--muted); }
   .run .title { margin: 4px 0; font-size: 13px; }
+  /* result area inside a run card */
+  .run-result { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .run-preview { font-size: 12px; }
+  .run-preview-title { font-weight: 600; margin-bottom: 2px; color: var(--text); }
+  .run-preview-body { color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+  .run-fail { color: var(--err); font-size: 11px; margin-top: 6px; word-break: break-word; }
+  .run-result .vbadge { margin-top: 6px; }
   .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 99px;
            border: 1px solid var(--border-strong); color: var(--muted); }
   .badge.done { color: var(--ok); border-color: var(--ok); }
   .badge.failed { color: var(--err); border-color: var(--err); }
   .badge.interrupted { color: var(--err); border-color: var(--err); }
   .badge.running { color: var(--warn); border-color: var(--warn); }
-  .agents { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .agents { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; }
   .agent-chip { font-size: 11px; padding: 3px 10px; border-radius: 99px;
                 border: 1px solid var(--border-strong); color: var(--muted); }
   .agent-chip.running { color: var(--warn); border-color: var(--warn); }
   .agent-chip.done { color: var(--ok); border-color: var(--ok); }
   .agent-chip.failed { color: var(--err); border-color: var(--err); }
   .agent-chip.pending { opacity: 0.55; }
+  .agent-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .agent-stat { font-size: 11px; padding: 2px 8px; border-radius: 99px;
+                border: 1px solid var(--border-strong); color: var(--muted); }
+  .agent-stat b { color: var(--text); }
+  /* report summary card at the top of the board view */
+  .summary-card { border: 1px solid var(--accent); border-radius: 10px;
+                  background: var(--panel); padding: 12px; margin-bottom: 12px; }
+  .summary-card .sum-head { display: flex; align-items: center; justify-content: space-between;
+                            gap: 8px; margin-bottom: 6px; }
+  .summary-card .sum-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+                             color: var(--accent); font-weight: 600; }
+  .summary-card .sum-open { font-size: 12px; color: var(--accent); cursor: pointer; background: none;
+                            border: 0; padding: 0; font-weight: 500; }
+  .summary-card .sum-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .summary-card .sum-body { color: var(--muted); font-size: 12px; white-space: pre-wrap;
+                            word-break: break-word; }
+  /* grouped, color-coded activity log */
   .log { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px;
-         color: var(--muted); max-height: 180px; overflow: auto; }
-  .log div { padding: 2px 0; border-bottom: 1px solid #eceef1; }
+         color: var(--muted); max-height: 220px; overflow: auto; }
+  .log-row { padding: 3px 0 3px 8px; border-bottom: 1px solid #eceef1;
+             border-left: 3px solid var(--ac, transparent); }
+  .log-tag { font-weight: 600; margin-right: 6px; }
   .report { white-space: pre-wrap; font-size: 13px; }
   .report h1, .report h2 { color: var(--text); }
   .report a { color: var(--accent); }
@@ -107,25 +140,28 @@
 </head>
 <body>
 <header>
-  <h1>PaperFlow</h1>
-  <span>multi-agent paper review — Researcher · Reader · Critic · Synthesizer</span>
+  <div class="head-left">
+    <h1>PaperFlow</h1>
+    <span class="sub" id="subtitle"></span>
+  </div>
+  <button id="lang-btn" onclick="toggleLang()"></button>
 </header>
 <main>
   <div class="entry-row">
-    <input id="entry" type="text" placeholder="arXiv URL, DOI (10.xxxx/...), or local PDF path …">
-    <button id="start">Review paper</button>
+    <input id="entry" type="text">
+    <button id="start"></button>
   </div>
-  <div class="hint">e.g. https://arxiv.org/abs/1706.03762 · 10.54254/2753-8818/2026.DL34010 · C:\papers\paper.pdf</div>
+  <div class="hint" id="hint"></div>
 
   <div class="grid">
     <div class="panel">
-      <h2>Runs</h2>
-      <div id="runs"><div class="empty">No runs yet — start one above.</div></div>
+      <h2 id="runs-heading">Runs</h2>
+      <div id="runs"><div class="empty" id="runs-empty"></div></div>
     </div>
 
     <div class="panel" id="detail-view">
-      <h2 id="detail-title">Select a run</h2>
-      <div id="detail-body"><div class="empty">The task board and final report will appear here.</div></div>
+      <h2 id="detail-title"></h2>
+      <div id="detail-body"><div class="empty" id="detail-empty"></div></div>
     </div>
   </div>
 </main>
@@ -134,7 +170,7 @@
 <script>
 const { esc, md } = window.PaperFlowMD;
 const $ = (id) => document.getElementById(id);
-let current = null, pollTimer = null;
+let current = null, pollTimer = null, LANG = "en", lastBoard = null;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -142,50 +178,259 @@ async function api(path, opts) {
   return res.json();
 }
 
-function statusBadge(s) { return `<span class="badge ${s}">${s}</span>`; }
+/* ------------------------------------------------------------------ */
+/* i18n: English default, 中文 switchable, instant re-render            */
+/* ------------------------------------------------------------------ */
+const I18N = {
+  en: {
+    title: "PaperFlow · Multi-Agent Paper Review",
+    subtitle: "multi-agent paper review — Researcher · Reader · Critic · Synthesizer",
+    placeholder: "arXiv URL, DOI (10.xxxx/...), or local PDF path …",
+    hint: "e.g. https://arxiv.org/abs/1706.03762 · 10.54254/2753-8818/2026.DL34010 · C:\\papers\\paper.pdf",
+    review: "Review paper",
+    runs: "Runs",
+    no_runs: "No runs yet — start one above.",
+    select_run: "Select a run",
+    detail_placeholder: "The task board, report and verification will appear here.",
+    tab_board: "Task board",
+    tab_report: "Report",
+    tab_verification: "Verification",
+    activity_log: "Activity log",
+    no_events: "no events yet",
+    loading: "loading…",
+    report_summary: "Results",
+    open_report: "open full report →",
+    quotes_verified: "quotes verified",
+    claims_verified: "claims verified",
+    verified: "verified",
+    unverified: "unverified",
+    pending: "pending",
+    critic_label: "critic:",
+    code_label: "code:",
+    location: "location ≈ char {n} (normalized full text)",
+    quote_note: "quote presence is verified by code, not by the LLM",
+    no_claims: "No claims to verify for this run.",
+    claims: "claims",
+    verdicts: "verdicts",
+    report_ready: "report ready",
+    failed_at: "failed at",
+    status_done: "done",
+    status_failed: "failed",
+    status_running: "running",
+    status_interrupted: "interrupted",
+    status_pending: "pending",
+    agent_system: "system",
+    claim_n: "(claim {n})",
+  },
+  zh: {
+    title: "PaperFlow · 多智能体论文审阅",
+    subtitle: "多智能体论文审阅 — Researcher · Reader · Critic · Synthesizer",
+    placeholder: "arXiv 链接、DOI（10.xxxx/...）或本地 PDF 路径…",
+    hint: "例如 https://arxiv.org/abs/1706.03762 · 10.54254/2753-8818/2026.DL34010 · C:\\papers\\paper.pdf",
+    review: "审阅论文",
+    runs: "运行记录",
+    no_runs: "暂无运行 — 在上方提交一个",
+    select_run: "选择一个运行",
+    detail_placeholder: "任务板、报告与核验详情将显示在这里",
+    tab_board: "任务板",
+    tab_report: "报告",
+    tab_verification: "核验",
+    activity_log: "活动日志",
+    no_events: "暂无事件",
+    loading: "加载中…",
+    report_summary: "审阅结果",
+    open_report: "打开完整报告 →",
+    quotes_verified: "条引文已核验",
+    claims_verified: "条论断已核验",
+    verified: "已核验",
+    unverified: "未核验",
+    pending: "待定",
+    critic_label: "Critic：",
+    code_label: "代码：",
+    location: "位置 ≈ 第 {n} 字符（归一化全文）",
+    quote_note: "引文存在性由代码核验，而非由 LLM 判断",
+    no_claims: "该运行没有可核验的论断",
+    claims: "条论断",
+    verdicts: "条判定",
+    report_ready: "报告就绪",
+    failed_at: "失败于",
+    status_done: "完成",
+    status_failed: "失败",
+    status_running: "运行中",
+    status_interrupted: "已中断",
+    status_pending: "等待",
+    agent_system: "系统",
+    claim_n: "（论断 {n}）",
+  },
+};
+
+function t(key, vars) {
+  const dict = I18N[LANG] || I18N.en;
+  let s = dict[key] != null ? dict[key] : (I18N.en[key] != null ? I18N.en[key] : key);
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, v);
+  return s;
+}
+
+function statusLabel(raw) { return t("status_" + raw) || raw; }
+
+function setText(id, text) { const el = $(id); if (el) el.textContent = text; }
+
+function applyStatic() {
+  document.title = t("title");
+  document.documentElement.lang = LANG === "zh" ? "zh" : "en";
+  setText("subtitle", t("subtitle"));
+  $("entry").placeholder = t("placeholder");
+  setText("hint", t("hint"));
+  setText("start", t("review"));
+  setText("runs-heading", t("runs"));
+  // runs-empty / detail-empty are initial placeholders only and get
+  // destroyed once the lists render - guard against null
+  setText("runs-empty", t("no_runs"));
+  setText("detail-title", t("select_run"));
+  setText("detail-empty", t("detail_placeholder"));
+  setText("lang-btn", LANG === "zh" ? "EN" : "中文");
+}
+
+function toggleLang() {
+  LANG = LANG === "zh" ? "en" : "zh";
+  try { localStorage.setItem("pf-lang", LANG); } catch (e) { /* ignore */ }
+  applyStatic();
+  refresh();
+}
+
+/* ------------------------------------------------------------------ */
+/* run list: result summary area per card                               */
+/* ------------------------------------------------------------------ */
+const AGENT_STYLE = {
+  researcher: { label: "Researcher", color: "var(--agent-r)" },
+  reader: { label: "Reader", color: "var(--agent-g)" },
+  critic: { label: "Critic", color: "var(--agent-o)" },
+  synthesizer: { label: "Synthesizer", color: "var(--agent-p)" },
+  orchestrator: { label: "System", color: "var(--muted)" },
+};
+const agentStyle = (name) => AGENT_STYLE[name] || { label: name || "…", color: "var(--muted)" };
+
+function stripMd(s) { return s.replace(/^#+\s*/, "").replace(/[*_`>]/g, "").trim(); }
+
+function runResultArea(r) {
+  const parts = [];
+  if (r.status === "done" && r.report_preview) {
+    const first = r.report_preview.split("\n");
+    const titleLine = first.find(l => l.trim().startsWith("# ")) || "";
+    const body = r.report_preview.replace(titleLine, "").trim();
+    parts.push(
+      '<div class="run-preview">' +
+      (titleLine ? `<div class="run-preview-title">${esc(stripMd(titleLine))}</div>` : "") +
+      `<div class="run-preview-body">${esc(body.slice(0, 180))}</div></div>`
+    );
+  }
+  if (r.verification) {
+    const v = r.verification;
+    const cls = v.total_count && v.verified_count === v.total_count ? " verified" : "";
+    parts.push(`<span class="vbadge${cls}">✓ ${v.verified_count}/${v.total_count} ${esc(t("quotes_verified"))}</span>`);
+  }
+  if (r.status === "failed" && r.failure) {
+    const err = (r.failure.error || "").slice(0, 140);
+    parts.push(`<div class="run-fail">✗ ${esc(t("failed_at"))} ${esc(r.failure.stage)}: ${esc(err)}</div>`);
+  }
+  return parts.length ? `<div class="run-result">${parts.join("")}</div>` : "";
+}
+
+function statusBadge(s) { return `<span class="badge ${s}">${esc(statusLabel(s))}</span>`; }
 
 function renderRuns(runs) {
   const box = $("runs");
-  if (!runs.length) { box.innerHTML = '<div class="empty">No runs yet.</div>'; return; }
+  if (!runs.length) { box.innerHTML = `<div class="empty">${esc(t("no_runs"))}</div>`; return; }
   box.innerHTML = runs.map(r => `
     <div class="run" data-id="${r.id}" onclick="selectRun('${r.id}')">
-      <div class="id">${r.id} · ${r.input.kind}</div>
-      <div class="title">${esc(r.input.raw.length > 70 ? r.input.raw.slice(0,70)+"…" : r.input.raw)}</div>
+      <div class="id">${esc(r.id)} · ${esc(r.input.kind)}</div>
+      <div class="title">${esc(r.input.raw.length > 70 ? r.input.raw.slice(0, 70) + "…" : r.input.raw)}</div>
       ${statusBadge(r.status)}
+      ${runResultArea(r)}
     </div>`).join("");
 }
 
+/* ------------------------------------------------------------------ */
+/* detail: grouped color-coded log + agent output badges               */
+/* ------------------------------------------------------------------ */
+function renderLog(log) {
+  if (!log || !log.length) return `<div class="empty">${esc(t("no_events"))}</div>`;
+  return log.slice(-40).map(e => {
+    const style = agentStyle(e.agent);
+    const tag = e.agent ? `<span class="log-tag" style="color:${style.color}">${esc(style.label)}</span>` : "";
+    return `<div class="log-row" style="--ac:${style.color}">${tag}<span>${esc(e.message)}</span></div>`;
+  }).join("");
+}
+
+function renderAgentBadges(verification) {
+  const box = $("agent-badges");
+  if (!box) return;
+  const bits = [];
+  if (verification && verification.total_count != null) {
+    bits.push(`<span class="agent-stat">Reader · <b>${verification.total_count}</b> ${esc(t("claims"))} · <b>${verification.verified_count}</b> ${esc(t("quotes_verified"))}</span>`);
+    const withVerdict = (verification.claims || []).filter(c => c.verdict).length;
+    bits.push(`<span class="agent-stat">Critic · <b>${withVerdict}</b> ${esc(t("verdicts"))}</span>`);
+  }
+  if (lastBoard && lastBoard.report) {
+    bits.push(`<span class="agent-stat" style="color:var(--ok);border-color:var(--ok)">Synthesizer · ✓ ${esc(t("report_ready"))}</span>`);
+  }
+  box.innerHTML = bits.join("");
+}
+
+function renderReportSummary(text) {
+  const box = $("report-summary");
+  if (!box) return;
+  if (!text) { box.innerHTML = ""; return; }
+  const lines = text.split("\n");
+  const titleLine = lines.find(l => l.trim().startsWith("# ")) || "";
+  const rest = lines.filter(l => l !== titleLine).slice(0, 4);
+  const title = titleLine ? stripMd(titleLine) : t("report_summary");
+  box.innerHTML = `
+    <div class="summary-card">
+      <div class="sum-head">
+        <span class="sum-label">${esc(t("report_summary"))}</span>
+        <button class="sum-open" onclick="showTab('report')">${esc(t("open_report"))}</button>
+      </div>
+      <div class="sum-title">${esc(title)}</div>
+      <div class="sum-body">${esc(rest.join("\n"))}</div>
+    </div>`;
+}
+
 function renderDetail(board) {
+  lastBoard = board;
   $("detail-title").textContent = board.id;
   const agents = ["researcher", "reader", "critic", "synthesizer"];
   const chips = agents.map(a => {
     const st = (board.agents[a] || {}).status || "pending";
-    return `<span class="agent-chip ${st}">${a}: ${st}</span>`;
+    return `<span class="agent-chip ${st}">${a} · ${esc(statusLabel(st))}</span>`;
   }).join("");
-  const log = board.log.slice(-30).map(e =>
-    `<div>[${e.ts.slice(11,19)}] ${e.agent ? e.agent+": " : ""}${esc(e.message)}</div>`).join("");
   $("detail-body").innerHTML = `
     <div>input: <code>${esc(board.input.raw)}</code> &nbsp; ${statusBadge(board.status)}</div>
     <div class="agents">${chips}</div>
+    <div class="agent-badges" id="agent-badges"></div>
     <div class="tabs">
-      <button id="tab-board" class="active" onclick="showTab('board')">Task board</button>
-      <button id="tab-report" onclick="showTab('report')">Report</button>
-      <button id="tab-verification" onclick="showTab('verification')">Verification</button>
+      <button id="tab-board" class="active" onclick="showTab('board')">${esc(t("tab_board"))}</button>
+      <button id="tab-report" onclick="showTab('report')">${esc(t("tab_report"))}</button>
+      <button id="tab-verification" onclick="showTab('verification')">${esc(t("tab_verification"))}</button>
     </div>
-    <div id="board-view"><h2>Activity log</h2><div class="log">${log || '<div class="empty">no events yet</div>'}</div></div>
+    <div id="board-view">
+      <div id="report-summary"></div>
+      <h2>${esc(t("activity_log"))}</h2>
+      <div class="log">${renderLog(board.log)}</div>
+    </div>
     <div id="report-view"><div class="report"></div></div>
-    <div id="verification-view"><div class="empty">loading…</div></div>`;
+    <div id="verification-view"><div class="empty">${esc(t("loading"))}</div></div>`;
   if (board.report) loadReport(board.id);
   loadVerification(board.id);
   if (board.status === "running") startPolling(); else stopPolling();
 }
 
 function showTab(which) {
-  ["board", "report", "verification"].forEach(t => {
-    const btn = $(`tab-${t}`);
-    const view = $(`${t}-view`);
-    if (btn) btn.classList.toggle("active", t === which);
-    if (view) view.style.display = t === which ? "" : "none";
+  ["board", "report", "verification"].forEach(tab => {
+    const btn = $(`tab-${tab}`);
+    const view = $(`${tab}-view`);
+    if (btn) btn.classList.toggle("active", tab === which);
+    if (view) view.style.display = tab === which ? "" : "none";
   });
 }
 
@@ -193,23 +438,28 @@ async function loadReport(id) {
   try {
     const res = await fetch(`/api/runs/${id}/report`);
     const text = await res.text();
-    $("report-view").querySelector(".report").innerHTML = md(text);
+    const node = $("report-view").querySelector(".report");
+    if (node) node.innerHTML = md(text);
+    renderReportSummary(text);
   } catch { /* report not ready yet */ }
 }
 
-/* ---- Verification view: deterministic quote verification ---- */
-
+/* ------------------------------------------------------------------ */
+/* Verification view: deterministic quote verification                  */
+/* ------------------------------------------------------------------ */
 function vBadge(quoteVerified) {
-  if (quoteVerified === true) return '<span class="vbadge verified">✓ verified</span>';
-  if (quoteVerified === false) return '<span class="vbadge unverified">✗ unverified</span>';
-  return '<span class="vbadge">— pending</span>';
+  if (quoteVerified === true) return `<span class="vbadge verified">✓ ${esc(t("verified"))}</span>`;
+  if (quoteVerified === false) return `<span class="vbadge unverified">✗ ${esc(t("unverified"))}</span>`;
+  return `<span class="vbadge">— ${esc(t("pending"))}</span>`;
 }
 
 function renderVerification(data) {
   const box = $("verification-view");
+  if (!box) return;
+  renderAgentBadges(data);
   const { total_count, verified_count, claims } = data;
   if (!total_count) {
-    box.innerHTML = '<div class="empty">No claims to verify for this run.</div>';
+    box.innerHTML = `<div class="empty">${esc(t("no_claims"))}</div>`;
     return;
   }
   const pct = Math.round((verified_count / total_count) * 100);
@@ -218,26 +468,28 @@ function renderVerification(data) {
       ? ` &nbsp;<span class="vbadge">${esc(c.verdict)}</span>` : "";
     const ctx = c.quote_context
       ? `<div class="claim-ctx">… ${esc(c.quote_context)} …</div>` : "";
+    const loc = c.quote_loc != null
+      ? `<div>${esc(t("location", { n: c.quote_loc }))}</div>` : "";
     return `
     <div class="claim-card" onclick="toggleClaim(this)">
       <div class="claim-head">
         ${vBadge(c.quote_verified)}
-        <div><strong>${esc(c.claim || `(claim ${i + 1})`)}</strong>${verdictChip}</div>
+        <div><strong>${esc(c.claim || t("claim_n", { n: i + 1 }))}</strong>${verdictChip}</div>
       </div>
       <div class="claim-body">
         ${c.quote ? `<div class="claim-quote">${esc(c.quote)}</div>` : ""}
         <div class="claim-meta">
-          ${c.verdict_note ? `<div>critic: ${esc(c.verdict_note)}</div>` : ""}
-          ${c.quote_verification ? `<div>code: ${esc(c.quote_verification)}</div>` : ""}
-          ${c.quote_loc != null ? `<div>location ≈ char ${c.quote_loc} (normalized full text)</div>` : ""}
+          ${c.verdict_note ? `<div>${esc(t("critic_label"))} ${esc(c.verdict_note)}</div>` : ""}
+          ${c.quote_verification ? `<div>${esc(t("code_label"))} ${esc(c.quote_verification)}</div>` : ""}
+          ${loc}
           ${ctx}
         </div>
-        <div class="verify-note">quote presence is verified by code, not by the LLM</div>
+        <div class="verify-note">${esc(t("quote_note"))}</div>
       </div>
     </div>`;
   }).join("");
   box.innerHTML = `
-    <div class="verify-stats"><strong>${verified_count}/${total_count}</strong> claims verified (${pct}%)
+    <div class="verify-stats"><strong>${verified_count}/${total_count}</strong> ${esc(t("claims_verified"))} (${pct}%)
       <div class="verify-bar"><div style="width:${pct}%"></div></div>
     </div>
     ${cards}`;
@@ -268,6 +520,7 @@ async function selectRun(id) { current = id; refresh(); }
 window.selectRun = selectRun;
 window.showTab = showTab;
 window.toggleClaim = toggleClaim;
+window.toggleLang = toggleLang;
 
 $("start").addEventListener("click", async () => {
   const entry = $("entry").value.trim();
@@ -288,6 +541,8 @@ $("start").addEventListener("click", async () => {
 
 $("entry").addEventListener("keydown", (e) => { if (e.key === "Enter") $("start").click(); });
 
+try { LANG = localStorage.getItem("pf-lang") || "en"; } catch (e) { /* ignore */ }
+applyStatic();
 refresh();
 setInterval(refresh, 5000);
 </script>
