@@ -39,11 +39,14 @@ from scripts.compare_arms_live import (
     extend_experiment,
     extension_plan,
     known_win_rates,
+    missing_contributions,
+    new_failure_modes,
     paper_number_values,
     plan_for,
     reader_claim_evidence,
     render_markdown,
     run_grid,
+    stored_report_integrity,
     token_runs,
 )
 from tests.helpers import FakeLLM, text_response, tool_call_response, tool_result_text_path
@@ -651,8 +654,27 @@ def test_the_comparison_reports_whether_the_arm_intervals_overlap_at_both_sample
     assert comparison["verdicts"]["coverage"]["arms_separated_n5"] is True
     assert comparison["verdicts"]["attribution_rate"]["arms_separated_n5"] is False
 
-    # a wider sample can only narrow an interval, never widen it
-    assert attribution["width_n5"]["B_pipeline"] <= attribution["width_n3"]["B_pipeline"]
+    # `narrowed_by` is arithmetic on two min-max widths. It is deliberately NOT
+    # asserted as "N=5 is always narrower": a min-max range over more samples can
+    # stay the same or grow, and a report that promised otherwise would be
+    # claiming something the interval cannot deliver.
+    sample = compare_summaries(
+        aggregate(_records_with(3, coverage=_coverage_fixture(), attribution={
+            "A_single_prompt": [0.0, 0.5, 0.0],
+            "B_pipeline": [0.1, 0.1, 0.1],
+            "C_pipeline_no_verification": [0.1, 0.1, 0.1],
+        })),
+        aggregate(_records_with(5, coverage=_coverage_fixture(), attribution={
+            "A_single_prompt": [0.1, 0.2, 0.3, 0.2, 0.1],
+            "B_pipeline": [0.1, 0.1, 0.1, 0.1, 0.1],
+            "C_pipeline_no_verification": [0.1, 0.1, 0.1, 0.1, 0.1],
+        })),
+    )["columns"]["attribution_rate"]
+    assert sample["width_n3"]["A_single_prompt"] == pytest.approx(0.5)
+    assert sample["width_n5"]["A_single_prompt"] == pytest.approx(0.2)
+    assert sample["narrowed_by"]["A_single_prompt"] == pytest.approx(0.3)
+    # mean shift: 0.18 (N=5) - 0.1667 (N=3)
+    assert sample["mean_shift_n5_minus_n3"]["A_single_prompt"] == pytest.approx(0.18 - 0.5 / 3, abs=1e-4)
     assert comparison["verdicts"]["cost_multiple"]["n3"] == pytest.approx(0.12 / 0.025, rel=0.02)
 
 
@@ -714,6 +736,92 @@ def test_the_extension_reuses_the_stored_runs_and_buys_only_the_new_repeats(tmp_
         "A_single_prompt-r5", "B_pipeline-r5", "C_pipeline_no_verification-r5",
     ]
     assert all(r["status"] == "ok" for r in records), "the stored runs must survive the merge"
+
+
+def test_the_coverage_checklist_can_name_the_item_a_report_missed():
+    """Coverage is a count *and* a set of ids.
+
+    "B covered 13 of 14" is what the headline number says; "B missed the same
+    item in all five runs" is what makes the gap interpretable, and it has to be
+    read off the checklist rather than asserted in prose after the fact.
+    """
+    from scripts.paper_ground_truth import CONTRIBUTIONS
+
+    everything = " ".join(
+        group[0] for contribution in CONTRIBUTIONS for group in contribution["groups"]
+    ) + " " + " ".join(
+        needle for contribution in CONTRIBUTIONS for needle in contribution.get("substrings", [])
+    )
+    assert missing_contributions(everything) == []
+    assert missing_contributions("a review that discusses nothing in particular") == [
+        contribution["id"] for contribution in CONTRIBUTIONS
+    ]
+
+
+def test_the_coverage_checklist_ids_are_recorded_per_run(tmp_path: Path):
+    """The per-run record carries which checklist entries were missing."""
+    results = run_grid(
+        llm_factory=lambda: _fake_llm(tmp_path / "paper.pdf"),
+        runs=1,
+        out_dir=tmp_path,
+        paper_pdf=_write_pdf(tmp_path),
+        paper_text=FIXTURE_TEXT,
+        arxiv_stub=lambda query, max_results=5: "[]",
+    )
+    for record in results:
+        assert isinstance(record["coverage_missing"], list)
+        assert record["coverage"] + len(record["coverage_missing"]) == record["coverage_total"]
+
+
+def test_the_extension_reports_which_stored_reports_no_longer_match_the_published_grid(tmp_path: Path):
+    """A stored report can be overwritten after the grid that measured it.
+
+    The extension re-scores from disk, so if a run directory no longer holds the
+    text the previous grid measured, the N=3 column and the N=3 rows would
+    silently disagree. This check finds those runs and says what changed, rather
+    than letting the merged table imply the two are the same evidence.
+    """
+    runs_dir = tmp_path / "runs"
+    stored = [
+        {"run_id": "A_single_prompt-r1", "arm": "A_single_prompt", "status": "ok",
+         "report_chars": 11, "coverage": 14},
+        {"run_id": "B_pipeline-r1", "arm": "B_pipeline", "status": "ok",
+         "report_chars": 999, "coverage": 13},
+    ]
+    (runs_dir / "A_single_prompt-r1").mkdir(parents=True)
+    (runs_dir / "A_single_prompt-r1" / "report.md").write_text("hello world", encoding="utf-8")
+    (runs_dir / "B_pipeline-r1" / "out").mkdir(parents=True)
+    (runs_dir / "B_pipeline-r1" / "out" / "report.md").write_text("a different review", encoding="utf-8")
+
+    integrity = stored_report_integrity(stored, runs_dir)
+    assert integrity["runs_checked"] == 2
+    assert [row["run_id"] for row in integrity["mismatched"]] == ["B_pipeline-r1"]
+    row = integrity["mismatched"][0]
+    assert row["published_report_chars"] == 999
+    assert row["stored_report_chars"] == len("a different review")
+    assert row["published_coverage"] == 13
+    assert "note" in integrity
+
+
+def test_machine_verdicts_in_the_verification_off_arm_are_only_flagged_from_the_machine_layer():
+    """Arm C's *model* may write "[unverifiable]" itself; that is not a leak.
+
+    The machine layer's own footprint in C is a deterministic claim status or a
+    ledger, both of which are switched off. Counting the model's vocabulary as
+    leakage would have flagged two clean C runs in the N=5 grid.
+    """
+    stored = [{"run_id": "C_pipeline_no_verification-r1", "arm": "C_pipeline_no_verification",
+               "status": "ok", "coverage": 13, "attribution_rate": 0.1, "headings_present": 8}]
+    model_wording = {
+        "run_id": "C_pipeline_no_verification-r4", "arm": "C_pipeline_no_verification", "status": "ok",
+        "coverage": 13, "attribution_rate": 0.1, "headings_present": 8,
+        "machine_markers_on_bullets": 10, "claims_with_deterministic_status": 0, "ledger_in_report": False,
+    }
+    assert new_failure_modes(stored, [model_wording], None, None) == []
+
+    leaky = {**model_wording, "claims_with_deterministic_status": 3}
+    modes = new_failure_modes(stored, [leaky], None, None)
+    assert any("machine layer" in mode for mode in modes), modes
 
 
 # ---------------------------------------------------------------------------

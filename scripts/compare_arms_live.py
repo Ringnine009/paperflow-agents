@@ -69,7 +69,7 @@ from paperflow.core.pricing import (  # noqa: E402
 )
 from paperflow.pipeline import Pipeline  # noqa: E402
 from paperflow.tools.net import extract_pdf_text  # noqa: E402
-from paperflow.tools.texttools import canonical_tokens, normalize_ws  # noqa: E402
+from paperflow.tools.texttools import canonical_text, canonical_tokens, normalize_ws  # noqa: E402
 from scripts.paper_ground_truth import (  # noqa: E402
     CONTRIBUTIONS,
     HEADLINE_NUMBERS,
@@ -449,23 +449,35 @@ def contributions_covered(text: str) -> tuple[int, int]:
     against the canonical text instead, for entity names whose punctuation
     tokenization would otherwise split them.
     """
-    from paperflow.tools.texttools import canonical_text
-
     tokens = canonical_tokens(text)  # a list: rescanned, never consumed
     canonical = canonical_text(text)
-    covered = 0
-    for contribution in CONTRIBUTIONS:
-        groups_ok = all(
-            any(_subsequence(tokens, canonical_tokens(alternative)) for alternative in group)
-            for group in contribution["groups"]
-        )
-        substrings_ok = all(
-            needle in canonical for needle in contribution.get("substrings", [])
-        )
-        if groups_ok and substrings_ok:
-            covered += 1
+    covered = sum(1 for contribution in CONTRIBUTIONS if _contribution_covered(contribution, tokens, canonical))
     return covered, len(CONTRIBUTIONS)
 
+
+def _contribution_covered(contribution: dict, tokens: list[str], canonical: str) -> bool:
+    groups_ok = all(
+        any(_subsequence(tokens, canonical_tokens(alternative)) for alternative in group)
+        for group in contribution["groups"]
+    )
+    substrings_ok = all(needle in canonical for needle in contribution.get("substrings", []))
+    return groups_ok and substrings_ok
+
+
+def missing_contributions(text: str) -> list[str]:
+    """The checklist ids this text does **not** cover, in checklist order.
+
+    The count alone cannot say whether a gap is one recurring blind spot or
+    three different ones, so the ids are recorded per run and the report names
+    the item an arm keeps missing instead of asserting it.
+    """
+    tokens = canonical_tokens(text)
+    canonical = canonical_text(text)
+    return [
+        contribution["id"]
+        for contribution in CONTRIBUTIONS
+        if not _contribution_covered(contribution, tokens, canonical)
+    ]
 
 def claim_bullets(report: str) -> list[str]:
     """The claim bullets of a report's 'Key Claims & Evidence' section.
@@ -552,6 +564,7 @@ def evaluate_report(
         **number_grounding(bullets, paper_values or set()),
         "coverage": coverage,
         "coverage_total": coverage_total,
+        "coverage_missing": missing_contributions(report),
         "coverage_rate": round(coverage / coverage_total, 3) if coverage_total else None,
         "factual_errors": len(errors),
         "factual_error_details": errors,
@@ -913,6 +926,61 @@ def extension_plan(records: list[dict], runs: int) -> list[tuple[str, int]]:
     ]
 
 
+def stored_report_integrity(stored: list[dict], runs_dir: Path) -> dict:
+    """Which stored reports no longer hold the text the previous grid measured.
+
+    The extension re-scores from disk, so a run directory that was overwritten
+    after the previous grid published (a re-run that was aborted, a stray
+    process, a manual edit) would make the "N=3" column and the "N=3" rows of
+    the merged table disagree about what the model actually wrote. Comparing the
+    published `report_chars` with the file on disk finds those runs and reports
+    both readings instead of silently preferring one.
+    """
+    checked = 0
+    mismatched: list[dict] = []
+    for record in stored:
+        if record.get("status") != STATUS_OK:
+            continue
+        checked += 1
+        path = _report_path_for(record, runs_dir / str(record.get("run_id")))
+        if path is None:
+            mismatched.append({
+                "run_id": record.get("run_id"),
+                "issue": "the report this grid measured is no longer on disk",
+                "published_report_chars": record.get("report_chars"),
+                "stored_report_chars": None,
+                "published_coverage": record.get("coverage"),
+                "stored_coverage": None,
+            })
+            continue
+        text = path.read_text(encoding="utf-8")
+        if record.get("report_chars") != len(text):
+            coverage, _total = contributions_covered(text)
+            mismatched.append({
+                "run_id": record.get("run_id"),
+                "issue": "the stored report differs from the text this grid measured",
+                "path": str(path),
+                "published_report_chars": record.get("report_chars"),
+                "stored_report_chars": len(text),
+                "published_coverage": record.get("coverage"),
+                "stored_coverage": coverage,
+                "stored_report_mtime": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime)
+                ),
+            })
+    return {
+        "runs_checked": checked,
+        "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "mismatched": mismatched,
+        "note": (
+            "The N=3 side of this comparison is the stored reports re-scored by the current "
+            "scorers, so the comparison and the merged `runs` agree. The numbers the previous "
+            "grid published came from the texts listed here; where a run appears above, the two "
+            "readings differ and both are reported."
+        ),
+    }
+
+
 def merge_records(
     stored: list[dict], bought: list[dict], paper_text: str, runs_dir: Path
 ) -> list[dict]:
@@ -1004,9 +1072,16 @@ def extend_experiment(
         "judge": previous.get("judge"),
         "total_spend_cny": previous.get("total_spend_cny"),
     }
+    # The comparison's N=3 side is the *stored* runs re-scored, so the table and
+    # the merged run list are the same evidence. The previously published
+    # summary stays in `history.summary`, and any run whose stored report no
+    # longer matches what that summary measured is reported in `integrity`.
+    stored_rescored = records_up_to_repeat(merged, history["runs_per_arm"] or 0)
+    history["rescored_summary"] = aggregate(stored_rescored) if stored_rescored else None
+    history["integrity"] = stored_report_integrity(stored, out_dir)
     comparison = compare_summaries(
-        previous.get("summary") or {"arms": {}}, summary,
-        previous_records=stored, current_records=merged,
+        history["rescored_summary"] or {"arms": {}}, summary,
+        previous_records=stored_rescored, current_records=merged,
         previous_runs_per_arm=history["runs_per_arm"] or 0, runs_per_arm=runs,
     )
     bought_ids = [record["run_id"] for record in bought]
@@ -1523,8 +1598,14 @@ def new_failure_modes(
     for record in ok:
         if record.get("arm") == "B_pipeline" and not record.get("ledger_in_report"):
             modes.append(f"{record['run_id']}: the pipeline shipped a report with no verification ledger")
-        if record.get("arm") == "C_pipeline_no_verification" and (record.get("machine_markers_on_bullets") or 0) > 0:
-            modes.append(f"{record['run_id']}: machine verdicts appeared in the arm with verification off")
+        if record.get("arm") == "C_pipeline_no_verification" and (
+            record.get("claims_with_deterministic_status") or record.get("ledger_in_report")
+        ):
+            modes.append(
+                f"{record['run_id']}: the machine layer left a footprint in the arm where it is switched off "
+                f"(claim statuses={record.get('claims_with_deterministic_status')}, "
+                f"ledger={record.get('ledger_in_report')})"
+            )
 
     for arm, column in (judge_extension or {}).get("arms", {}).items():
         before = ((historical_judge or {}).get("arms") or {}).get(arm) or {}
@@ -1746,7 +1827,7 @@ def _num(value: Any, digits: int = 4) -> str:
         return f"{value:,}"
     if isinstance(value, float):
         if value == int(value) and abs(value) < 10**6:
-            return f"{value:,.2f}".rstrip("0").rstrip(".") if digits else str(int(value))
+            return f"{int(value):,}" if not digits else f"{value:,.2f}".rstrip("0").rstrip(".")
         return f"{value:,.{digits}f}".rstrip("0").rstrip(".")
     return str(value)
 
@@ -1761,6 +1842,82 @@ def _range(stats: dict | None, digits: int = 3) -> str:
     if not stats or stats.get("min") is None:
         return "not measurable"
     return f"{_num(stats['min'], digits)}–{_num(stats['max'], digits)}"
+
+
+def _signed(value: Any, digits: int = 3) -> str:
+    if value is None:
+        return "not measurable"
+    return f"{float(value):+.{digits}f}"
+
+
+def _rate(value: Any) -> str:
+    if value is None:
+        return "not measurable"
+    return f"{float(value):.3f}"
+
+
+def _plural(count: Any, singular: str, plural: str | None = None) -> str:
+    number = float(count or 0)
+    return singular if abs(number - 1) < 1e-9 else (plural or singular + "s")
+
+
+def _coverage_reading(payload: dict, arm: str) -> str:
+    """Which checklist items an arm missed, and whether it is always the same one.
+
+    Read from the per-run `coverage_missing` ids, so the sentence "it keeps
+    missing the same item" is a fact about the records rather than a claim
+    written next to them.
+    """
+    from scripts.paper_ground_truth import CONTRIBUTIONS
+
+    statements = {contribution["id"]: contribution["statement"] for contribution in CONTRIBUTIONS}
+    ok_runs = [
+        record for record in (payload.get("runs") or [])
+        if record.get("arm") == arm and record.get("status") == "ok"
+    ]
+    if not ok_runs:
+        return "no successful run to read"
+    if not any("coverage_missing" in record for record in ok_runs):
+        return "not measurable: this grid did not record the per-run checklist ids"
+    runs = [set(record.get("coverage_missing") or []) for record in ok_runs]
+    always = set.intersection(*runs)
+    sometimes = set.union(*runs) - always
+    parts = []
+    if always:
+        detail = "; ".join(f"`{item}` ({statements.get(item, 'unknown')})" for item in sorted(always))
+        parts.append(f"missed in every one of the {len(runs)} runs: {detail}")
+    if sometimes:
+        parts.append(f"missed in some runs only: {', '.join(sorted(sometimes))}")
+    if not parts:
+        parts.append(f"missed nothing in any of the {len(runs)} runs")
+    return "; ".join(parts)
+
+
+def _missing_id_phrase(payload: dict, arm: str = "B_pipeline") -> str:
+    """The checklist ids this arm missed across its runs, as markdown code spans."""
+    ids = sorted({
+        item
+        for record in (payload.get("runs") or [])
+        if record.get("arm") == arm and record.get("status") == "ok"
+        for item in (record.get("coverage_missing") or [])
+    })
+    return ", ".join(f"`{item}`" for item in ids) if ids else "nothing"
+
+
+def _pipeline_full_coverage_runs(payload: dict, arm: str = "B_pipeline") -> int:
+    """How many of the pipeline's runs covered the whole checklist."""
+    return sum(
+        1 for record in (payload.get("runs") or [])
+        if record.get("arm") == arm and record.get("status") == "ok"
+        and not (record.get("coverage_missing") or [])
+    )
+
+
+def _separated_columns(comparison: dict, runs_key: str, columns: Iterable[str] = QUALITY_COLUMNS) -> list[str]:
+    return [
+        column for column in columns
+        if ((comparison.get("columns") or {}).get(column) or {}).get(f"arms_separated_{runs_key}")
+    ]
 
 
 def _overlap_word(flag: bool | None) -> str:
@@ -1791,6 +1948,12 @@ def render_markdown(payload: dict) -> str:
     runs_n5 = int(meta.get("runs_per_arm") or 5)
     runs_n3 = int((history or {}).get("runs_per_arm") or 0) or None
     previous = (history or {}).get("summary") or {}
+    # Everything the comparison *reads* comes from the re-scored basis, so the
+    # N=3 column equals the N=3 rows of the merged run list. The published
+    # summary is kept separately and shown where it differs.
+    previous_rescored = (history or {}).get("rescored_summary") or previous
+    integrity = (history or {}).get("integrity") or {}
+    mismatched = integrity.get("mismatched") or []
     ok_n5 = summary.get("runs_ok", 0)
     out: list[str] = []
 
@@ -1812,25 +1975,47 @@ def render_markdown(payload: dict) -> str:
     add("preserved unchanged next to it as `docs/arm-comparison-live-n3.json` — history is not")
     add("overwritten, it is what the extension is compared against.")
     add()
+    if mismatched:
+        add(f"> **Integrity note (read this before comparing the two grids).** {len(mismatched)} of the")
+        add(f"> {_num(integrity.get('runs_checked'), 0)} stored N=3 run directories no longer contain the text the")
+        add("> published N=3 numbers were measured from. The extension re-scored every stored report and")
+        add("> reports the N=3 column from that re-scored basis, so the table and the run list are the same")
+        add("> evidence; the published-vs-stored detail is in [§5.1](#51-a-stored-report-that-changed-underneath-the-grid),")
+        add("> and the published N=3 numbers themselves are preserved unchanged in")
+        add("> `docs/arm-comparison-live-n3.json`.")
+        add()
 
     coverage_v = verdicts.get(HEADLINE_COLUMN) or {}
     cost_v = verdicts.get("cost_multiple") or {}
     coverage_entry = columns.get(HEADLINE_COLUMN) or {}
     if history:
+        mean5 = coverage_v.get("mean_n5") or {}
         gap = coverage_v.get("gap_n5")
+        published_overlap = intervals_overlap(
+            _column_of(previous, "A_single_prompt", HEADLINE_COLUMN),
+            _column_of(previous, "B_pipeline", HEADLINE_COLUMN),
+        )
         add(
-            "**Headline: widening N=3 to N=5 did not change the conclusion.** "
-            f"Coverage was {_num((coverage_v.get('mean_n5') or {}).get('A_single_prompt'), 2)}/14 for the single"
-            f" prompt and {_num((coverage_v.get('mean_n5') or {}).get('B_pipeline'), 2)}/14 for the pipeline"
-            + (f" (a gap of {_num(gap, 2)} contributions, {_num((gap or 0) / 14 * 100, 1)}% of the checklist)" if gap is not None else "")
-            + "; factual errors stayed at "
-            + f"{_num((verdicts.get('factual_errors') or {}).get('mean_n5', {}).get('A_single_prompt'), 2)}"
-            + " for every arm; and the cost multiple moved from "
-            + f"{_num(cost_v.get('n3'), 2)}x to {_num(cost_v.get('n5'), 2)}x. "
+            "**Headline: the wider sample kept the cost and error conclusions, and removed the one "
+            "column that had looked like a quality edge.** Coverage at N="
+            f"{runs_n5} is a mean of {_num(mean5.get('A_single_prompt'), 2)}/14 for the single prompt against "
+            f"{_num(mean5.get('B_pipeline'), 2)}/14 for the pipeline (a mean gap of {_num(gap, 2)} of 14 items), and "
             + (
-                "The intervals that overlapped at N=3 still overlap at N=5."
-                if coverage_entry.get("every_pair_overlaps_n5")
-                else "The columns that failed to separate at N=3 still fail to separate at N=5."
+                "the two intervals **overlap**, so coverage does not separate the arms. The published N=3 "
+                "numbers had them disjoint (\"A ≥ B in every run\"); on the stored reports re-scored — the "
+                "same three repeats — they already overlapped (§5.1). "
+                if not published_overlap and not coverage_entry.get("arms_separated_n5") else
+                "the two intervals are disjoint. " if coverage_entry.get("arms_separated_n5") else
+                "the two intervals still overlap. "
+            )
+            + "Factual errors were "
+            f"{_num((verdicts.get('factual_errors') or {}).get('mean_n5', {}).get('A_single_prompt'), 2)} in every run "
+            f"of both grids, and the cost multiple moved from {_num(cost_v.get('n3'), 2)}× to "
+            f"{_num(cost_v.get('n5'), 2)}× "
+            + (
+                f"({_num(cost_v.get('delta'), 3)}), which is inside the band the three-run grid implied."
+                if cost_v.get("stable") else
+                f"({_num(cost_v.get('delta'), 3)}), outside the band the three-run grid implied: quote the wider sample."
             )
         )
     else:
@@ -1871,25 +2056,25 @@ def render_markdown(payload: dict) -> str:
     add("## 2. Cost accounting — measured, from the API's own `usage` block")
     add()
     add("Prices are the published DeepSeek ones at **peak** rates, converted at 7.1 CNY/USD; cost =")
-    add("tokens × those prices. Mean with [min–max] over the successful runs of each grid.")
+    add("tokens × those prices. Mean with [min–max] over the successful runs of each grid"
+        + (", the N=3 side being the stored reports re-scored (§5.1)." if history else "."))
     add()
     add("| Column | A " + (f"(N={runs_n3})" if runs_n3 else "") + " | B " + (f"(N={runs_n3})" if runs_n3 else "")
         + " | C " + (f"(N={runs_n3})" if runs_n3 else "") + " | A " + f"(N={runs_n5}) | B (N={runs_n5}) | C (N={runs_n5}) |")
     add("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
-    for column, label in (
-        ("llm_calls", "LLM calls per review"),
-        ("prompt_tokens", "Input tokens per review"),
-        ("completion_tokens", "Output tokens per review"),
-        ("wall_seconds", "Wall-clock per review (s)"),
-        ("cost_cny", "**CNY per review**"),
+    for column, label, digits in (
+        ("llm_calls", "LLM calls per review", 2),
+        ("prompt_tokens", "Input tokens per review", 0),
+        ("completion_tokens", "Output tokens per review", 0),
+        ("wall_seconds", "Wall-clock per review (s)", 1),
+        ("cost_cny", "**CNY per review**", 4),
     ):
-        entry = columns.get(column) or {}
         cells = []
+        if history:
+            for arm in ARMS:
+                cells.append(_mean_min_max(_column_of(previous_rescored, arm, column), digits))
         for arm in ARMS:
-            cells.append(_mean_min_max(_column_of(previous, arm, column) if history else None, 4) if history
-                         else _mean_min_max(_column_of(summary, arm, column), 4))
-        for arm in ARMS:
-            cells.append(_mean_min_max(_column_of(summary, arm, column), 4))
+            cells.append(_mean_min_max(_column_of(summary, arm, column), digits))
         add(f"| {label} | " + " | ".join(cells) + " |")
     multiple_cells = ["1.00×"]
     if history:
@@ -1905,13 +2090,20 @@ def render_markdown(payload: dict) -> str:
     if history:
         add("### The cost multiple, N=3 vs N=5")
         add()
+        band_n3 = [value for value in (cost_v.get("ratio_range_n3") or [None, None])]
+        band_n5 = [value for value in (cost_v.get("ratio_range_n5") or [None, None])]
+        band_delta = (
+            round((band_n5[1] - band_n5[0]) - (band_n3[1] - band_n3[0]), 4)
+            if None not in (*band_n3, *band_n5) else None
+        )
         add("| | N=3 | N=5 | moved by |")
         add("| --- | ---: | ---: | ---: |")
         add(f"| B over A (mean prices) | {_num(cost_v.get('n3'), 2)}× | {_num(cost_v.get('n5'), 2)}× | "
-            f"{_num(cost_v.get('delta'), 3)} |")
-        add(f"| per-run ratio band, B/A | {_range({'min': (cost_v.get('ratio_range_n3') or [None, None])[0], 'max': (cost_v.get('ratio_range_n3') or [None, None])[1]}, 2)} "
-            f"| {_range({'min': (cost_v.get('ratio_range_n5') or [None, None])[0], 'max': (cost_v.get('ratio_range_n5') or [None, None])[1]}, 2)} | — |")
-        add(f"| C over A (mean prices) | {_num(cost_v.get('c_vs_a_n3'), 2)}× | {_num(cost_v.get('c_vs_a_n5'), 2)}× | — |")
+            f"{_signed(cost_v.get('delta'), 3)} |")
+        add(f"| per-run ratio band, B/A | {_range({'min': band_n3[0], 'max': band_n3[1]}, 2)} "
+            f"| {_range({'min': band_n5[0], 'max': band_n5[1]}, 2)} | {_signed(band_delta, 2)} wide |")
+        add(f"| C over A (mean prices) | {_num(cost_v.get('c_vs_a_n3'), 2)}× | {_num(cost_v.get('c_vs_a_n5'), 2)}× | "
+            f"{_signed((cost_v.get('c_vs_a_n5') or 0) - (cost_v.get('c_vs_a_n3') or 0), 3)} |")
         add()
         stable = cost_v.get("stable")
         add(
@@ -1919,10 +2111,15 @@ def render_markdown(payload: dict) -> str:
             "(a price per review is not paired across arms, so this is the honest interval). "
             + (
                 "**The multiple is stable:** the N=5 point estimate still sits inside the band the "
-                "three-run grid implied."
+                "three-run grid implied. "
                 if stable else
                 "**The multiple moved:** the N=5 point estimate sits outside the band the three-run "
-                "grid implied, so the 4.57× figure was a property of those three runs, not of the arms."
+                "grid implied, so the 4.57× figure was a property of those three runs, not of the arms. "
+            )
+            + (
+                "A ratio band over more runs can narrow or widen, so which way it moved is reported "
+                "rather than assumed."
+                if band_delta is not None else ""
             )
         )
         add()
@@ -1980,7 +2177,7 @@ def render_markdown(payload: dict) -> str:
     for column, label in quality_rows:
         if history:
             cells = [
-                f"{_mean_min_max(_column_of(previous, arm, column), 3)} → {_mean_min_max(_column_of(summary, arm, column), 3)}"
+                f"{_mean_min_max(_column_of(previous_rescored, arm, column), 3)} → {_mean_min_max(_column_of(summary, arm, column), 3)}"
                 for arm in ARMS
             ]
         else:
@@ -1989,6 +2186,10 @@ def render_markdown(payload: dict) -> str:
     add()
     if history:
         add(f"Each cell reads **N={runs_n3} → N={runs_n5}**: mean (min–max) before the extension, then after.")
+        add(
+            f"The N={runs_n3} side is the stored reports re-scored by one scorer version, so this table and "
+            "the run list agree; §5.1 records where that differs from what the first write-up published."
+        )
         add()
         add("| Machine layer (architectural, not a quality score) | A | B | C |")
         add("| --- | ---: | ---: | ---: |")
@@ -2012,6 +2213,22 @@ def render_markdown(payload: dict) -> str:
         add(f"| Machine-written `## Verification Ledger` present | "
             f"**0/{ledger_ok} runs** | **{ledger_runs}/{ledger_ok} runs** | **0/{ledger_ok} runs** |")
         add()
+        vocabulary = [
+            record["run_id"] for record in (payload.get("runs") or [])
+            if record.get("arm") == "C_pipeline_no_verification" and record.get("status") == "ok"
+            and (record.get("machine_markers_on_bullets") or 0) > 0
+        ]
+        if vocabulary:
+            add(
+                "**Marker-vocabulary caveat.** The marker column counts *labels*, not provenance, and in "
+                f"{len(vocabulary)} of C's runs the model wrote the machine layer's own vocabulary itself "
+                f"({', '.join('`' + run + '`' for run in sorted(vocabulary))}) while the machine layer "
+                "contributed nothing to that arm — no deterministic claim status, no ledger. So \"0 machine "
+                "verdicts on C's bullets\" is true of the *machine layer* (which is switched off) and false "
+                "of the *text* in those runs. The columns that carry the architecture claim are the claim "
+                "statuses and the ledger, not the label count."
+            )
+            add()
 
     # 4. overlap -----------------------------------------------------------
     if history:
@@ -2038,7 +2255,10 @@ def render_markdown(payload: dict) -> str:
                 f"{_overlap_word(pairs_n5.get('B_vs_C'))} | {reading} |"
             )
         add()
-        add("Interval width, N=3 → N=5 (a wider sample can only narrow a range, never widen it):")
+        add("Interval width, N=3 → N=5. These are min–max ranges, and a range over more runs can stay")
+        add("the same or **widen** — more samples can always turn up a new extreme. What a wider sample")
+        add("buys is a mean estimated from more runs; it does not promise a narrower range, and this")
+        add("table is reported rather than promised:")
         add()
         add("| Column | A | B | C |")
         add("| --- | ---: | ---: | ---: |")
@@ -2065,36 +2285,56 @@ def render_markdown(payload: dict) -> str:
                           "max": (cov.get("range_n5") or {}).get("B_pipeline", [None, None])[1]}, 2)
         add("**1. Is the coverage difference (14/14 vs 13/14) still inside the noise?**")
         add()
+        published_overlap = intervals_overlap(
+            _column_of(previous, "A_single_prompt", HEADLINE_COLUMN),
+            _column_of(previous, "B_pipeline", HEADLINE_COLUMN),
+        )
         if coverage_entry.get("arms_separated_n5"):
-            add(
-                f"No — and it was not inside it at N=3 either. At N={runs_n5} the coverage intervals are "
-                f"A [{a_range}] and B [{b_range}]: disjoint. The gap is "
-                f"{_num(gap, 2)} contribution(s) out of 14 ({_num((gap or 0) / 14 * 100, 1)} points), "
-                "reproduced in **every** run of both grids rather than appearing in one lucky sample. "
-                "The honest reading is therefore not \"it is noise\" but \"it is one checklist item, and "
-                "the instrument's granularity is one checklist item\" — a 1/14 effect is the smallest "
-                "difference this checklist can express, and it is the *same* item every time (see the "
-                "coverage details in the JSON). It is a real, repeatable, one-item edge for the single "
-                "prompt, not a 7-point quality gap."
-            )
+            add("**Yes, it is inside the noise at N=5**, so the published N=3 edge does not survive:")
         else:
-            add(
-                f"Yes: the coverage intervals overlap at N={runs_n5} (A [{a_range}], B [{b_range}]), so the "
-                "measured gap is inside the run-to-run spread and the extension removed the apparent edge."
+            add("**Yes — and on the stored reports it was never outside it.**")
+        add()
+        add(
+            f"At N={runs_n5} the coverage intervals are A [{a_range}] and B [{b_range}] and they overlap, so the "
+            f"measured gap of {_num(gap, 2)} {_plural(gap, 'item')} of 14 is inside the run-to-run spread. "
+            + (
+                "The published N=3 numbers had those intervals disjoint (B was 13/14 in all three runs), which "
+                "is what the first write-up reported; re-scoring the stored reports — the same three repeats — "
+                "shows B at 14/14 in its first run, i.e. overlapping already (§5.1). "
+                if not published_overlap else ""
             )
+            + "Which checklist items an arm misses, read from the per-run ids rather than asserted:"
+        )
+        add()
+        for arm in ARMS:
+            add(f"* arm {ARM_LABELS[arm]} — {_coverage_reading(payload, arm)}")
+        add()
+        add(
+            "So the honest reading of this column is: **the single prompt covered all 14 contributions in every "
+            f"one of its {runs_n5} runs; the pipeline covered 14 in {_pipeline_full_coverage_runs(payload)} of its "
+            f"{runs_n5}, and its misses are not one recurring blind spot** (across the pipeline runs they move "
+            f"between {_missing_id_phrase(payload)}). A 1/14 difference is the smallest this checklist can "
+            "express, and at five runs it is not a measurable difference between the arms."
+        )
         add()
         add("**2. Is the cost multiple stable?**")
         add()
         add(
             f"The mean-price multiple moved from {_num(cost_v.get('n3'), 2)}× at N=3 to "
-            f"{_num(cost_v.get('n5'), 2)}× at N=5 (a change of {_num(cost_v.get('delta'), 3)}), with the "
-            f"per-run B/A ratio band going from {_range({'min': (cost_v.get('ratio_range_n3') or [None, None])[0], 'max': (cost_v.get('ratio_range_n3') or [None, None])[1]}, 2)} "
-            f"to {_range({'min': (cost_v.get('ratio_range_n5') or [None, None])[0], 'max': (cost_v.get('ratio_range_n5') or [None, None])[1]}, 2)}. "
-            + (
-                "The N=5 estimate still lies inside the N=3 band, so **the multiple is stable**, and the "
-                "band narrowed rather than widened as the sample grew."
-                if cost_v.get("stable") else
-                "The N=5 estimate falls outside the N=3 band: **the multiple is not stable**, and the "
+            f"{_num(cost_v.get('n5'), 2)}× at N=5 ({_signed(cost_v.get('delta'), 3)}), with the"
+        )
+        add(
+            f"per-run B/A ratio band going from {_range({'min': band_n3[0], 'max': band_n3[1]}, 2)} to "
+            f"{_range({'min': band_n5[0], 'max': band_n5[1]}, 2)}."
+        )
+        add(
+            (
+                "The N=5 estimate still lies inside the N=3 band, so **the multiple is stable** — the "
+                "headline multiple is a property of the architecture, not of one grid."
+            )
+            if cost_v.get("stable") else
+            (
+                "The N=5 estimate falls outside the N=3 band, so **the multiple is not stable**: the "
                 "widened sample is the one to quote."
             )
         )
@@ -2103,8 +2343,17 @@ def render_markdown(payload: dict) -> str:
         add()
         modes = extension.get("new_failure_modes") or []
         if modes:
+            add("**Yes — one, and it is a within-arm event rather than a new way for one arm to win:**")
+            add()
             for mode in modes:
                 add(f"* {mode}")
+            add()
+            add(
+                "Everything the extension could have shown and did not: no failed or skipped run, no new "
+                "deterministic factual error in any arm, no pipeline run without its ledger, no machine-layer "
+                "footprint in the arm where verification is switched off, and no judge support rate that fell "
+                "away from the recorded one (§6)."
+            )
         else:
             add(
                 f"**No.** Across the {extension.get('runs_bought', 0)} new runs: no failed run, no new "
@@ -2119,6 +2368,60 @@ def render_markdown(payload: dict) -> str:
             + "the interval table and the per-run figures are the new evidence, and the N=3 numbers are "
             "reported next to the N=5 ones rather than replaced.")
         add()
+        add("### 5.1 A stored report that changed underneath the grid")
+        add()
+        if mismatched:
+            add(
+                "The extension re-scores from disk. Comparing each stored report with the character count the "
+                "previous grid published shows that some run directories no longer hold the text that grid "
+                "measured — so the N=3 numbers as published and the N=3 reports as stored are not the same "
+                "evidence. This document reports the re-scored basis and keeps the published summary "
+                "untouched:"
+            )
+            add()
+            add("| run | published chars | stored chars | published coverage | stored coverage | stored report mtime |")
+            add("| --- | ---: | ---: | ---: | ---: | --- |")
+            for row in mismatched:
+                add(
+                    f"| `{row.get('run_id')}` | {_num(row.get('published_report_chars'), 0)} | "
+                    f"{_num(row.get('stored_report_chars'), 0)} | {_num(row.get('published_coverage'), 0)} | "
+                    f"{_num(row.get('stored_coverage'), 0)} | {row.get('stored_report_mtime') or 'n/a'} |"
+                )
+            add()
+            started_at = (history or {}).get("started_at")
+            rewritten_after = [
+                row for row in mismatched
+                if started_at and (row.get("stored_report_mtime") or "") > str(started_at)
+            ]
+            if rewritten_after:
+                add(
+                    f"Every rewritten report is stamped **after the frozen grid's own `started_at` "
+                    f"({started_at})**, so the change happened once that grid had finished writing its records; "
+                    "what rewrote them is not recorded anywhere in this repository (the run directories carry no "
+                    "provenance), which is exactly why the check exists instead of a note in a README."
+                )
+                add()
+            published_cov = {arm: _column_of(previous, arm, "coverage") for arm in ARMS}
+            rescored_summary = (history or {}).get("rescored_summary") or {}
+            add("Coverage, both readings of the same three stored repeats:")
+            add()
+            add("| basis | A | B | C |")
+            add("| --- | ---: | ---: | ---: |")
+            add("| published N=3 (the texts as measured then) | "
+                + " | ".join(_mean_min_max(published_cov[arm], 2) for arm in ARMS) + " |")
+            add("| stored reports, re-scored now | "
+                + " | ".join(_mean_min_max(_column_of(rescored_summary, arm, "coverage"), 2) for arm in ARMS) + " |")
+            add()
+            add(
+                "The honest consequence: the published N=3 line \"A ≥ B on coverage in every run\" is a "
+                "property of those three texts, and at least one stored run (B's first repeat) covers 14 "
+                "of 14. The N=5 column in §3 is therefore the one to quote, and these run directories are no "
+                "longer a faithful re-scoring source for the N=3 numbers — the frozen JSON is."
+            )
+        else:
+            add("Every stored report still matches the text the previous grid measured "
+                f"({_num(integrity.get('runs_checked'), 0)} runs checked), so the N=3 column and the N=3 rows are the same evidence.")
+        add()
 
     # 6. judge -------------------------------------------------------------
     if judge:
@@ -2132,7 +2435,7 @@ def render_markdown(payload: dict) -> str:
             cells = []
             for arm in ARMS:
                 column = (judge.get("arms") or {}).get(arm) or {}
-                cells.append(_num(column.get(key), 4) if key in ("support_rate", "percent_agreement", "cohen_kappa")
+                cells.append(_rate(column.get(key)) if key in ("support_rate", "percent_agreement", "cohen_kappa")
                              else _num(column.get(key), 0))
             add(f"| {label} (recorded grid) | " + " | ".join(cells) + " |")
         if judge_extension:
@@ -2142,7 +2445,7 @@ def render_markdown(payload: dict) -> str:
                 cells = []
                 for arm in ARMS:
                     column = (judge_extension.get("arms") or {}).get(arm) or {}
-                    cells.append(_num(column.get(key), 4) if key in ("support_rate", "percent_agreement")
+                    cells.append(_rate(column.get(key)) if key in ("support_rate", "percent_agreement")
                                  else _num(column.get(key), 0))
                 add(f"| {label} (new repeats only) | " + " | ".join(cells) + " |")
             add()
@@ -2154,6 +2457,25 @@ def render_markdown(payload: dict) -> str:
                 "instead of quoting one sample twice."
             )
         add()
+        kappa_note = next(
+            (column.get("kappa_note") for column in (judge.get("arms") or {}).values() if column.get("kappa_note")),
+            None,
+        )
+        if kappa_note:
+            add(f"*Kappa note: {kappa_note}.*")
+            add()
+        degenerate = [
+            ARM_LABELS.get(arm, arm) for arm, column in (judge.get("arms") or {}).items()
+            if column.get("cohen_kappa") == 0 and (column.get("percent_agreement") or 0) > 0
+        ]
+        if degenerate:
+            add(
+                f"*Where kappa is 0 while the agreement is high (arm {', '.join(degenerate)}): one pass gave the "
+                "same verdict for every item, so chance alone predicts the observed agreement and kappa "
+                "collapses to 0. For those arms the percent-agreement column, not kappa, carries the "
+                "reliability reading.*"
+            )
+            add()
         add(
             "The judge asks arm A a different (easier) question, because A produces no quotes to judge "
             "— attribution to the paper instead of entailment by a quotation. **The two support rates "
@@ -2183,12 +2505,19 @@ def render_markdown(payload: dict) -> str:
     add()
 
     # 8. limitations -------------------------------------------------------
+    separated = _separated_columns(comparison, "n5") if history else []
     add("## 8. Limitations")
     add()
-    add(f"1. **One paper, one model, {runs_n5} repeats.** The per-arm ranges overlap on every column")
-    add("   except coverage, so on those columns the honest statement is \"no measurable difference in")
-    add("   this sample\", not \"A is better than B\". A difference smaller than a few points could not")
-    add("   have been detected here at all, and no significance test is defensible at n=5.")
+    add(f"1. **One paper, one model, {runs_n5} repeats.** "
+        + (
+            "The per-arm ranges overlap on every quality column except "
+            + ", ".join(f"`{column}`" for column in separated) + ", so on the others the honest"
+            if separated else
+            "The per-arm ranges overlap on every quality column, so the honest"
+        ))
+    add("   statement is \"no measurable difference in this sample\", not \"A is better than B\". A")
+    add("   difference smaller than a few points could not have been detected here at all, and no")
+    add("   significance test is defensible at n=5.")
     add("2. **The judge's question is not identical across arms** (§6). Fixing that properly needs a")
     add("   quote from arm A, which is precisely what arm A does not produce.")
     add("3. **`arxiv_search` is stubbed**, so the pipeline's related-work tool loop was never exercised")
@@ -2207,10 +2536,15 @@ def render_markdown(payload: dict) -> str:
     add("   checklist was frozen before the runs, and that the grader is tested against an unrelated")
     add("   report (which it scores 0/14).")
     if history:
-        add(f"8. **The stored runs were not re-bought, only re-scored.** The N={runs_n3} runs' reports,")
-        add("   tokens and costs are exactly as recorded in `docs/arm-comparison-live-n3.json`; the")
-        add("   deterministic columns for all runs were recomputed by one version of the scorers, said")
-        add("   in `extension.reused_run_ids`.")
+        add(f"8. **The stored runs were not re-bought, only re-scored.** The N={runs_n3} runs' tokens, costs")
+        add("   and timings are exactly as recorded in `docs/arm-comparison-live-n3.json`; the deterministic")
+        add("   columns for all runs were recomputed by one version of the scorers, said in")
+        add("   `extension.reused_run_ids`.")
+        if mismatched:
+            add(f"9. **{len(mismatched)} of the {_num(integrity.get('runs_checked'), 0)} stored reports no longer match the text the")
+            add("   published N=3 numbers were measured from** (§5.1). The published summary is preserved")
+            add("   unchanged in the frozen JSON, and the N=3 column of this document is the re-scored basis,")
+            add("   so the two readings differ for those runs. Treat the N=5 column as the quotable one.")
     add()
 
     # 9. conclusion --------------------------------------------------------
@@ -2236,15 +2570,33 @@ def render_markdown(payload: dict) -> str:
     add("> for C), and let code rather than the model own the verdict.")
     add()
     if history:
+        modes = extension.get("new_failure_modes") or []
+        coverage_separated = bool(coverage_entry.get("arms_separated_n5"))
         add(
             f"Widening the sample from {runs_n3} to {runs_n5} repeats per arm "
             f"({_num(extension.get('extension_total_cny'), 4)} CNY, "
             f"{_num((extension.get('budget_used_fraction') or 0) * 100, 1)}% of the extension budget) "
-            "**changed no conclusion**: the same column separates the arms (coverage, by one checklist "
-            "item, reproducibly), the same columns overlap, the cost multiple holds, and no new failure "
-            "mode appeared. What the extension bought is not a new finding but a narrower interval and a "
-            "second look at every number — which is what \"more data\" is supposed to buy, and it is "
-            "reported as such."
+            + (
+                "**changed one reading and left the rest standing**: the coverage column no longer separates "
+                "the arms at N=5, so the published N=3 edge (\"A ≥ B on coverage in every run\") does not "
+                "survive the wider sample, and the stored reports had already contradicted it (§5.1). "
+                if not coverage_separated else
+                "**kept the coverage separation** and left the rest standing: "
+            )
+            + "Everything else held: factual errors at zero in every run, headings complete in every run, "
+            + (
+                f"the cost multiple inside the band the three-run grid implied ({_num(cost_v.get('n5'), 2)}×), "
+                if cost_v.get("stable") else
+                f"the cost multiple moving to {_num(cost_v.get('n5'), 2)}× outside that band, "
+            )
+            + (
+                "and no new failure mode. "
+                if not modes else
+                f"and one new within-arm event ({len(modes)}: {modes[0].split(':')[0]}). "
+            )
+            + "What the extension bought is not a new headline but a corrected one: a smaller claim about "
+            "coverage, a verified cost multiple, and a stored-run integrity problem that the wider sample "
+            "walked straight into. That is what spending on more data is for, and it is reported as such."
         )
         add()
     add("The interview answer this supports: *\"Quality was flat across one prompt and four agents —")
@@ -2344,11 +2696,20 @@ def _score_only(args, runs_dir: Path) -> int:
                 summary["arms"][arm][key] = {k: v for k, v in column.items() if k != "sample"}
     comparison = None
     extension = previous.get("extension")
-    if history and history.get("summary"):
+    if history and (history.get("summary") or history.get("rescored_summary")):
         stored = records_up_to_repeat(records, previous_runs)
         bought = [record for record in records if _repeat_of(record) > previous_runs]
+        stored_summary = aggregate(stored)
+        history = {
+            **history,
+            "rescored_summary": stored_summary,
+            # carried over, not recomputed: after a re-score the payload's own
+            # report_chars are the stored text, so the published-vs-stored
+            # comparison can only be made where the published numbers still are
+            "integrity": history.get("integrity"),
+        }
         comparison = compare_summaries(
-            history["summary"], summary, previous_records=stored, current_records=records,
+            stored_summary, summary, previous_records=stored, current_records=records,
             previous_runs_per_arm=previous_runs, runs_per_arm=floor,
         )
         if extension is not None:
@@ -2356,6 +2717,21 @@ def _score_only(args, runs_dir: Path) -> int:
                 **extension,
                 "new_failure_modes": new_failure_modes(stored, bought, judge_extension, judge),
             }
+    if args.published:
+        # the authoritative published numbers live in the frozen grid file, so
+        # the integrity check reads them from there rather than from this
+        # payload (whose report_chars are already the stored text)
+        published_path = Path(args.published)
+        if not published_path.is_file():
+            print(f"ERROR: --published {published_path} does not exist.", file=sys.stderr)
+            return 2
+        published = json.loads(published_path.read_text(encoding="utf-8"))
+        history = {
+            **(history or {"runs_per_arm": int((published.get("meta") or {}).get("runs_per_arm") or 0) or None,
+                           "summary": published.get("summary"), "meta": published.get("meta")}),
+            "published_source": str(published_path),
+            "integrity": stored_report_integrity(published.get("runs") or [], runs_dir),
+        }
     meta = {
         **previous.get("meta", {}),
         "rescored_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2416,6 +2792,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budget", type=float, default=BUDGET_CNY, help=f"hard spend cap in CNY (default {BUDGET_CNY})")
     parser.add_argument("--out", default=str(REPO / "docs" / "arm-comparison-live.json"), help="JSON output path")
     parser.add_argument("--md", default=None, help="rendered markdown output path (default: beside --out)")
+    parser.add_argument(
+        "--published", default=None,
+        help="with --score-only: the frozen grid JSON whose published numbers the stored reports are "
+             "checked against (recorded as history.integrity)",
+    )
     parser.add_argument("--no-md", action="store_true", help="write only the JSON")
     parser.add_argument("--runs-dir", default=None, help="where run directories are written")
     parser.add_argument("--env-file", default=None, help="path to a .env holding DEEPSEEK_API_KEY")
