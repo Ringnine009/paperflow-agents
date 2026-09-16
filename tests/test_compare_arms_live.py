@@ -22,18 +22,27 @@ from pathlib import Path
 
 import pytest
 
+from paperflow.config import Settings
 from paperflow.core.llm import BudgetExceeded, LLMClient
+from paperflow.core.pricing import Pricing, PRICING_PEAK_CNY
 from scripts.compare_arms_live import (
     ARMS,
     BUDGET_CNY,
+    InsufficientRuns,
     PAPER_FACTS,
     PAPER_PDF,
     aggregate,
+    build_report,
     check_number_pairings,
+    compare_summaries,
     contributions_covered,
+    extend_experiment,
+    extension_plan,
     known_win_rates,
     paper_number_values,
+    plan_for,
     reader_claim_evidence,
+    render_markdown,
     run_grid,
     token_runs,
 )
@@ -516,6 +525,195 @@ def test_paper_facts_are_traceable_to_the_repository_pdf():
     assert PAPER_PDF.name == "werewolf-multiagent-paper.pdf"
     assert PAPER_FACTS["doi"] == "10.54254/2753-8818/2026.DL34010"
     assert len(PAPER_FACTS["contributions"]) >= 8
+
+
+# ---------------------------------------------------------------------------
+# the N=5 extension: the >=5-run fence, the incremental plan, the overlap report
+#
+# N=3 was the declared floor when the first grid ran (`docs/arm-comparison-live.md`
+# limitation 5). Widening it is only meaningful if the harness *cannot* ship a
+# report that claims more runs than it has, if the extension buys only the
+# repeats that are missing (the stored runs are the cache), and if the delivered
+# document answers the one question the extension exists to answer: do the arms'
+# per-arm intervals still overlap once the samples are wider?
+# ---------------------------------------------------------------------------
+
+
+def _records_with(per_arm: int, *, coverage: dict, attribution: dict) -> list[dict]:
+    """Deterministic per-arm quality records, no model involved.
+
+    ``coverage[arm]`` / ``attribution[arm]`` are per-repeat value lists (cycled
+    when shorter than ``per_arm``), so a test can state the interval it wants
+    each arm to have and then ask the report what it makes of it.
+    """
+    records: list[dict] = []
+    for repeat in range(1, per_arm + 1):
+        for arm in ARMS:
+            index = (repeat - 1) % len(coverage[arm])
+            records.append(
+                {
+                    "run_id": f"{arm}-r{repeat}",
+                    "arm": arm,
+                    "status": "ok",
+                    "cost_cny": 0.025 if arm == "A_single_prompt" else 0.12,
+                    "llm_calls": 1 if arm == "A_single_prompt" else 9,
+                    "prompt_tokens": 10, "completion_tokens": 5, "wall_seconds": 3.0,
+                    "headings_present": 8,
+                    "coverage": coverage[arm][index],
+                    "attribution_rate": attribution[arm][(repeat - 1) % len(attribution[arm])],
+                    "factual_errors": 0,
+                }
+            )
+    return records
+
+
+def _coverage_fixture() -> dict:
+    return {"A_single_prompt": [14], "B_pipeline": [13], "C_pipeline_no_verification": [13, 14, 13, 14, 13]}
+
+
+def _attribution_fixture() -> dict:
+    return {
+        "A_single_prompt": [0.0, 0.167, 0.0, 0.1, 0.2],
+        "B_pipeline": [0.25, 0.182, 0.1, 0.2, 0.15],
+        "C_pipeline_no_verification": [0.167, 0.083, 0.077, 0.1, 0.12],
+    }
+
+
+def test_the_run_plan_grows_with_the_repeat_count():
+    """A three-repeat constant used to be *sliced*, so `--runs 5` bought 3.
+
+    The whole N=5 extension is impossible if the plan cannot exceed the count
+    the first grid happened to use, so this is the fence under the fence.
+    """
+    plan = plan_for(5)
+    assert len(plan) == len(ARMS) * 5
+    for arm in ARMS:
+        assert plan.count(arm) == 5, arm
+    assert plan[:3] == list(ARMS), "the schedule must stay interleaved by repeat"
+
+
+def test_a_report_may_not_be_generated_from_fewer_than_five_runs_per_arm():
+    records = _records_with(3, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    with pytest.raises(InsufficientRuns) as excinfo:
+        build_report(records, aggregate(records), {"runs_per_arm": 3})
+    message = str(excinfo.value)
+    for arm in ARMS:
+        assert arm in message, "the refusal must name every arm that is short"
+    assert "3" in message and "5" in message
+
+
+def test_a_report_is_built_once_every_arm_reaches_the_floor():
+    records = _records_with(5, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    payload = build_report(records, aggregate(records), {"runs_per_arm": 5})
+    for arm in ARMS:
+        assert payload["summary"]["arms"][arm]["runs_ok"] == 5
+    assert payload["total_spend_cny"] == pytest.approx(round(sum(r["cost_cny"] for r in records), 6))
+
+
+def test_a_short_historical_grid_can_still_be_rescored_by_declaring_its_own_floor():
+    """`--score-only` reproduces a design that was already run; it does not buy one.
+
+    The floor governs *new* reports, so re-scoring the stored 3-run grid stays
+    possible - but only by naming the smaller floor explicitly.
+    """
+    records = _records_with(3, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    payload = build_report(records, aggregate(records), {"runs_per_arm": 3}, min_runs_per_arm=3)
+    assert payload["meta"]["runs_per_arm"] == 3
+
+
+def test_the_extension_plan_buys_only_the_repeats_that_are_missing():
+    stored = _records_with(3, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    assert extension_plan(stored, runs=5) == [
+        ("A_single_prompt", 4), ("B_pipeline", 4), ("C_pipeline_no_verification", 4),
+        ("A_single_prompt", 5), ("B_pipeline", 5), ("C_pipeline_no_verification", 5),
+    ]
+    assert extension_plan(stored, runs=3) == [], "a grid that is already wide enough buys nothing"
+    broken = [
+        {**record, "status": "failed", "error": "boom"} if record["run_id"] == "B_pipeline-r2" else record
+        for record in stored
+    ]
+    assert extension_plan(broken, runs=3) == [("B_pipeline", 2)], "a failed run is not a sample"
+
+
+def test_the_comparison_reports_whether_the_arm_intervals_overlap_at_both_sample_sizes():
+    n3 = aggregate(_records_with(3, coverage=_coverage_fixture(), attribution=_attribution_fixture()))
+    n5 = aggregate(_records_with(5, coverage=_coverage_fixture(), attribution=_attribution_fixture()))
+    comparison = compare_summaries(n3, n5)
+
+    coverage = comparison["columns"]["coverage"]
+    assert coverage["pairwise_overlap_n3"]["A_vs_B"] is False, "14/14 vs 13/13 was already disjoint"
+    assert coverage["pairwise_overlap_n5"]["A_vs_B"] is False
+    assert coverage["mean_n5"]["A_single_prompt"] == pytest.approx(14.0)
+    assert coverage["mean_n5"]["B_pipeline"] == pytest.approx(13.0)
+
+    attribution = comparison["columns"]["attribution_rate"]
+    assert attribution["pairwise_overlap_n5"]["A_vs_B"] is True, "these intervals do overlap"
+    assert comparison["verdicts"]["coverage"]["arms_separated_n5"] is True
+    assert comparison["verdicts"]["attribution_rate"]["arms_separated_n5"] is False
+
+    # a wider sample can only narrow an interval, never widen it
+    assert attribution["width_n5"]["B_pipeline"] <= attribution["width_n3"]["B_pipeline"]
+    assert comparison["verdicts"]["cost_multiple"]["n3"] == pytest.approx(0.12 / 0.025, rel=0.02)
+
+
+def test_the_markdown_report_states_the_overlap_verdict_for_both_sample_sizes():
+    n3_records = _records_with(3, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    n5_records = _records_with(5, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    n3 = aggregate(n3_records)
+    n5 = aggregate(n5_records)
+    payload = build_report(n5_records, n5, {"runs_per_arm": 5})
+    payload["history"] = {"summary": n3, "meta": {"runs_per_arm": 3}, "total_spend_cny": 1.0}
+    payload["comparison"] = compare_summaries(n3, n5)
+    payload["extension"] = {"runs_bought": 6, "reused_runs": 9}
+
+    markdown = render_markdown(payload)
+    assert "N=3" in markdown and "N=5" in markdown
+    assert "disjoint" in markdown and "overlap" in markdown
+    assert "**14** (14–14)" in markdown and "**13** (13–13)" in markdown
+    assert "runs_bought" not in markdown, "the document is written, not dumped"
+
+
+def test_the_markdown_report_refuses_to_be_written_from_fewer_than_five_runs_per_arm():
+    records = _records_with(3, coverage=_coverage_fixture(), attribution=_attribution_fixture())
+    payload = build_report(records, aggregate(records), {"runs_per_arm": 3}, min_runs_per_arm=3)
+    with pytest.raises(InsufficientRuns):
+        render_markdown(payload)
+
+
+def test_the_extension_reuses_the_stored_runs_and_buys_only_the_new_repeats(tmp_path: Path):
+    pdf = _write_pdf(tmp_path)
+    out_dir = tmp_path / "runs"
+    factory = lambda: _fake_llm(pdf)  # noqa: E731 - the scripted, spend-free client
+    stored = run_grid(
+        llm_factory=factory, runs=3, out_dir=out_dir, paper_pdf=pdf,
+        paper_text=FIXTURE_TEXT, arxiv_stub=lambda query, max_results=5: "[]",
+    )
+    previous_path = tmp_path / "previous.json"
+    previous_path.write_text(
+        json.dumps({"runs": stored, "summary": aggregate(stored), "meta": {"runs_per_arm": 3}}),
+        encoding="utf-8",
+    )
+
+    result = extend_experiment(
+        previous_path=previous_path, runs=5, out_dir=out_dir, budget=10.0,
+        settings=Settings(deepseek_api_key="sk-test"), pricing=PRICING_PEAK_CNY,
+        judge=False, paper_pdf=pdf, paper_text=FIXTURE_TEXT, llm_factory=factory,
+        arxiv_stub=lambda query, max_results=5: "[]",
+    )
+
+    records = result["records"]
+    assert len(records) == len(ARMS) * 5
+    for arm in ARMS:
+        assert [r["run_id"] for r in records if r["arm"] == arm] == [
+            f"{arm}-r{repeat}" for repeat in range(1, 6)
+        ]
+    assert result["extension"]["runs_bought"] == 6
+    assert result["extension"]["reused_runs"] == 9
+    assert result["extension"]["bought_run_ids"] == [
+        "A_single_prompt-r4", "B_pipeline-r4", "C_pipeline_no_verification-r4",
+        "A_single_prompt-r5", "B_pipeline-r5", "C_pipeline_no_verification-r5",
+    ]
+    assert all(r["status"] == "ok" for r in records), "the stored runs must survive the merge"
 
 
 # ---------------------------------------------------------------------------
