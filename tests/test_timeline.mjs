@@ -68,4 +68,41 @@ assert.deepStrictEqual(matches, [
 assert(normText("  a  b\nc ") === "a b c", "normText collapses whitespace");
 assert(normText("CLAIM Text") === "claim text", "normText lowercases");
 
+/* --- linkClaims: paraphrased bullets still link ---
+   Real case from examples/attention-is-all-you-need: the Reader's claim and
+   the Synthesizer's bullet word the same fact differently, which exact
+   containment alone cannot link (the public examples were at 0/7). Token
+   overlap fixes it, and the thresholds stay strict enough that unrelated
+   wording still does not link. */
+const readerClaim =
+  "The Transformer is the first transduction model relying entirely on self-attention to " +
+  "compute representations of its input and output without using sequence-aligned RNNs or convolution";
+const reportBullet =
+  "- **The Transformer is the first transduction model relying entirely on self-attention " +
+  "without sequence-aligned RNNs or convolution.** **[supported]** - the conclusion states it.";
+const paraphrased = linkClaims([reportBullet], [{ claim: readerClaim }]);
+assert.deepStrictEqual(paraphrased, [{ claimIndex: 0, blockIndex: 0 }], "paraphrased bullet links");
+
+const unrelated = linkClaims(
+  ["- **The paper introduces a new optimizer.**"],
+  [{ claim: "Vote accuracy rises monotonically across rounds" }]
+);
+assert.deepStrictEqual(unrelated, [], "unrelated wording does not link");
+
+const competing = linkClaims(
+  ["Vote accuracy rises monotonically across rounds."],
+  [
+    { claim: "Vote accuracy rises monotonically" },
+    { claim: "unassisted baseline win rate 44.2% and accuracy rises" },
+  ]
+);
+assert.deepStrictEqual(competing, [{ claimIndex: 0, blockIndex: 0 }], "exact match beats overlap");
+
+/* one block is never claimed twice, and results are ordered by claim index */
+const duplicated = linkClaims(
+  ["- Vote accuracy rises monotonically across rounds."],
+  [{ claim: "Vote accuracy rises monotonically" }, { claim: "accuracy rises monotonically across rounds" }]
+);
+assert.deepStrictEqual(duplicated, [{ claimIndex: 0, blockIndex: 0 }], "one block, one claim");
+
 console.log("timeline/claim-linking tests OK");

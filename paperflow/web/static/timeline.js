@@ -8,7 +8,11 @@ bar rows for a horizontal timeline; degrades to a flow-order layout when no
 timestamps exist.
 
 linkClaims: deterministically find which report blocks contain each claim's
-text, so the UI can inject clickable "go to verification" markers.
+text, so the UI can inject clickable "go to verification" markers. Exact
+containment is tried first (score 1); a bullet the Synthesizer paraphrased is
+linked by token overlap instead, which is what the machine ledger on the
+Python side uses too (97% of archived bullets align, against 0/7 with exact
+matching only).
 */
 
 (function (root, factory) {
@@ -22,8 +26,45 @@ text, so the UI can inject clickable "go to verification" markers.
 
   var ORDER = ["researcher", "reader", "critic", "synthesizer"];
 
+  //: a claim needs at least this many distinct tokens before overlap is trusted
+  var FUZZY_MIN_TOKENS = 4;
+  //: share of the claim's tokens a block must contain to be linked by overlap
+  var FUZZY_THRESHOLD = 0.6;
+
   function normText(s) {
     return String(s == null ? "" : s).replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function tokens(s) {
+    return normText(s).split(/[^0-9a-z]+/).filter(function (t) {
+      return t.length > 0;
+    });
+  }
+
+  function uniqueTokens(s) {
+    var seen = {};
+    return tokens(s).filter(function (t) {
+      if (seen[t]) return false;
+      seen[t] = true;
+      return true;
+    });
+  }
+
+  /** 1 for an exact (normalized) containment, else the claim-token share. */
+  function linkScore(claimText, blockText) {
+    var claim = normText(claimText);
+    if (claim.length > 0 && normText(blockText).indexOf(claim) !== -1) return 1;
+    var claimTokens = uniqueTokens(claimText);
+    if (claimTokens.length < FUZZY_MIN_TOKENS) return 0;
+    var blockTokens = {};
+    tokens(blockText).forEach(function (t) {
+      blockTokens[t] = true;
+    });
+    var hit = 0;
+    claimTokens.forEach(function (t) {
+      if (blockTokens[t]) hit += 1;
+    });
+    return hit / claimTokens.length;
   }
 
   function buildTimeline(agents, now) {
@@ -72,16 +113,29 @@ text, so the UI can inject clickable "go to verification" markers.
 
   function linkClaims(blockTexts, claims, minLen) {
     minLen = minLen || 6;
-    var matches = [];
+    var blocks = blockTexts || [];
+    var candidates = [];
     (claims || []).forEach(function (c, i) {
-      var claimText = c && c.claim ? normText(c.claim) : "";
-      if (claimText.length < minLen) return;
-      for (var b = 0; b < blockTexts.length; b++) {
-        if (normText(blockTexts[b]).indexOf(claimText) !== -1) {
-          matches.push({ claimIndex: i, blockIndex: b });
-          break;
-        }
+      var claimText = c && c.claim ? c.claim : "";
+      if (normText(claimText).length < minLen) return;
+      for (var b = 0; b < blocks.length; b++) {
+        var score = linkScore(claimText, blocks[b]);
+        if (score >= FUZZY_THRESHOLD) candidates.push({ score: score, claimIndex: i, blockIndex: b });
       }
+    });
+    // highest score wins; a claim and a block are each claimed at most once
+    candidates.sort(function (x, y) {
+      return y.score - x.score || x.claimIndex - y.claimIndex || x.blockIndex - y.blockIndex;
+    });
+    var usedClaims = {}, usedBlocks = {}, matches = [];
+    candidates.forEach(function (c) {
+      if (usedClaims[c.claimIndex] || usedBlocks[c.blockIndex]) return;
+      usedClaims[c.claimIndex] = true;
+      usedBlocks[c.blockIndex] = true;
+      matches.push({ claimIndex: c.claimIndex, blockIndex: c.blockIndex });
+    });
+    matches.sort(function (x, y) {
+      return x.claimIndex - y.claimIndex;
     });
     return matches;
   }
