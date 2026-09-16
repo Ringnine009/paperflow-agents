@@ -87,6 +87,16 @@ shared, human-readable task board:
   exchange *paths and previews*, keeping token cost low and quotes
   checkable. Every Reader quote is then verified deterministically against
   the stored text (see below).
+- **Deterministic quote verification, and it reaches the deliverable** — for
+  every claim the Reader records a machine status (`verified` /
+  `unverified` / `unverifiable`), the Critic's verdict is overridden by it,
+  and *code* (not the model) rewrites the report: claim bullets that the
+  machine downgraded are corrected and a generated `## Verification Ledger`
+  section lists every claim that could not be verified. A post-generation
+  check compares the report text with the machine status and logs any
+  disagreement to the board. Measured on the archived runs, the verifier
+  went from **102/131 (77.9%)** to **130/131 (99.2%)** quotes located —
+  see [docs/upgrade-notes.md](docs/upgrade-notes.md).
 - **Graceful degradation** — the Critic is optional: if fact-checking fails,
   the pipeline continues and the report says so honestly.
 
@@ -149,9 +159,10 @@ with three tabs: **Task board** (live agent states, an **execution timeline**
 of the four agents, and a color-coded per-agent activity log), **Report**
 (rendered review; claims that appear in the verification data get clickable
 `[#n]` markers that jump to their verification card) and **Verification** — a
-per-claim view of the deterministic quote check: every claim's quote,
-whether the code found it verbatim in the paper text, where it was found,
-and the critic's verdict.
+per-claim view of the deterministic quote check: every claim's quote, the
+code's verdict, the reason string it recorded (verbatim search / PDF
+hyphenation repaired / token-aligned), where it was found, the surrounding
+passage, and the critic's verdict.
 
 Finished runs show their **results directly in the run list**: a report
 preview, a "✓ n/m quotes verified" badge and (for failed runs) the failing
@@ -159,17 +170,50 @@ stage and reason. Selecting a run whose report is ready opens a **results
 summary card** at the top of the task board.
 
 > The dashboard binds `127.0.0.1` by default and the fetch tools refuse
-> private/loopback/link-local URLs (SSRF guard). It is a local tool — do
-> not expose it publicly with `--host 0.0.0.0`. Runs interrupted by a
-> server restart are shown as **interrupted** (covered by tests).
+> private/loopback/link-local URLs (SSRF guard) — including on **every
+> redirect hop**, since `requests` would otherwise follow a public
+> `302 -> http://169.254.169.254/` straight past the check. Not covered: a
+> hostname that resolves to a public address when checked and a private one
+> when fetched (DNS rebinding) — that needs connection-level IP pinning.
+> It is a local tool — do not expose it publicly with `--host 0.0.0.0`.
+> Runs interrupted by a server restart are shown as **interrupted**
+> (covered by tests).
 
 ### Tests
 
 ```bash
-python -m pytest                      # offline suite (no network, fake LLM)
-python -m pytest -m smoke             # real arXiv / Crossref API smoke tests
+python -m pytest                      # offline suite (no network, fake LLM) - 149 tests
+python -m pytest -m smoke             # real arXiv / Crossref API smoke tests (3)
 node tests/test_markdown.mjs          # dashboard markdown renderer (tables) — not part of pytest
+node tests/test_timeline.mjs          # execution timeline + report/claim linking — not part of pytest
 ```
+
+### Verification quality (measured, not claimed)
+
+Replaying every archived run (131 claims) through the old and the new
+verifier, plus the report-consistency check applied retroactively:
+
+```bash
+python scripts/recompute_verification.py     # before/after + archived report audit
+python scripts/compare_arms.py               # single-prompt vs pipeline vs pipeline-without-checks
+node scripts/measure_report_linking.mjs      # report bullet -> claim linking coverage
+python scripts/demo_ssrf_guard.py            # live SSRF reproduction on 127.0.0.1
+```
+
+| check | before | after |
+| --- | ---: | ---: |
+| quotes located in the paper (131 claims) | 102 (77.9%) | 130 (99.2%) |
+| archived reports carrying the machine verdict | 0/17 | new runs: code-injected ledger + consistency check |
+| claim bullets contradicting the machine verdict | 38 (in 11 archived reports) | detected, logged and repaired by code |
+| report bullets linked to their claim card (118 bullets) | 50 (42%) | 112 (95%) |
+| `fetch_url` reachable from loopback | yes (reproduced live) | refused, per redirect hop |
+
+The single remaining miss is a quote that really is not in that run's text
+(the Reader invented it) — it must keep failing. Details, including the
+match-tier breakdown and the residual risks, are in
+[docs/upgrade-notes.md](docs/upgrade-notes.md); the three-arm experiment
+design (and why its quality columns need a paid model) is in
+[docs/baseline-plan.md](docs/baseline-plan.md).
 
 ---
 
@@ -177,7 +221,10 @@ node tests/test_markdown.mjs          # dashboard markdown renderer (tables) —
 
 Running the **author's own werewolf paper** (DOI `10.54254/2753-8818/2026.DL34010`)
 produces a report like this — the first 20 lines are copied verbatim from
-[`examples/werewolf-dbn/report.md`](examples/werewolf-dbn/report.md):
+[`examples/werewolf-dbn/report.md`](examples/werewolf-dbn/report.md).
+That file (like the other committed samples) is an **archived run from before
+the verification ledger existed**, kept unedited as audit evidence — a fresh
+run additionally carries the machine-generated `## Verification Ledger`.
 
 ```markdown
 # Dynamic Belief Networks and Deep-Thinking Probes for Multi-agent Social Reasoning
@@ -221,9 +268,13 @@ paperflow/
 │   │   └── tools.py         # ToolSpec + ToolRegistry
 │   ├── tools/               # arxiv_search, resolve_doi, fetch_url,
 │   │                        # fetch_pdf_text, read_pdf, search_text
+│   │                        # net.py: throttle + SSRF guard (per hop)
 │   ├── agents/              # Researcher · Reader · Critic · Synthesizer
+│   │                        # verification.py: machine ledger + report check
 │   └── web/                 # FastAPI dashboard + static page
 ├── tests/                   # offline suite (fake LLM) + smoke tests
+├── scripts/                 # offline evidence: verification recompute,
+│                            # three-arm comparison, SSRF / ledger demos
 └── examples/                # committed sample runs
 ```
 
@@ -236,13 +287,33 @@ paperflow/
   hierarchical reading is future work.
 - **DeepSeek `deepseek-chat` only**: no reasoning-model or multi-provider
   abstraction yet (the `LLMClient` interface makes this straightforward).
+  `usage` from the API is currently dropped, so a run reports **no token or
+  cost accounting**.
 - **Sequential orchestration**: agents run in a fixed pipeline order; a
   parallel / map-reduce mode (multiple Readers per section) is not built.
 - **Abstract-only mode**: when no full text can be obtained (e.g. a DOI
-  without an open-access PDF), the review is based on the abstract and the
-  Critic marks claims *unverifiable*.
+  without an open-access PDF), the review is based on the abstract and every
+  claim is explicitly marked *unverifiable* — it is never presented as
+  supported.
+- **What the quote verifier does not catch**: it tolerates PDF artifacts
+  (line-break and in-word hyphens, page numbers extracted into a sentence,
+  punctuation differences) and quotes with an elided middle. It does not
+  catch a quote that was *paraphrased*, nor a claim whose number was changed
+  while the surrounding wording matches, and the hyphen/punctuation
+  normalization assumes the quote and the paper are the same language. The
+  match tier is reported per claim (`quote_match_mode`) so a repaired match
+  is never presented as a verbatim one.
+- **Report ↔ verification linking**: the dashboard links a report bullet to
+  its claim card by exact text containment first, then by claim-token overlap
+  (≥60% of the claim's tokens, ≥4 tokens), so bullets the Synthesizer
+  rephrased still link. Measured over the archived runs: **50/118 links with
+  exact matching only (42%, and 0/7 on the `attention-is-all-you-need`
+  sample) → 112/118 (95%)** with the overlap fallback. It is a navigation
+  aid, not a verification: the machine ledger in the report is what carries
+  the verdict.
 - **Network dependence**: arXiv/Crossref/DeepSeek calls need internet;
   arXiv's public API is rate-limited (the client enforces a ≥3s interval).
+  The offline suite never touches the network; the 3 smoke tests do.
 
 ---
 
