@@ -65,3 +65,39 @@ def test_settings_honors_optional_overrides(monkeypatch):
     s = Settings()
     assert s.model == "deepseek-reasoner"
     assert s.max_fulltext_chars == 1000
+
+
+# ---------------------------------------------------------------------------
+# environment isolation
+# ---------------------------------------------------------------------------
+
+def test_dotenv_load_does_not_leak_into_the_next_test(tmp_path: Path):
+    """`load_dotenv` writes to the real process environment - restore it.
+
+    ``test_load_dotenv_parses_key_value`` above calls the real ``load_dotenv``
+    on a temp file, so it sets ``DEEPSEEK_API_KEY=sk-test-123`` in
+    ``os.environ`` and never removes it. Whether that is harmless depends on
+    test order: anything that reads the key afterwards (the web dashboard
+    tests do) would see "sk-test-123" instead of the developer's environment.
+
+    The autouse ``restore_environ`` fixture in ``conftest.py`` snapshots the
+    environment before the test and restores it after, so this test observes
+    two things: the leak is real *within* a test, and it cannot survive one.
+    """
+    import os
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("DEEPSEEK_API_KEY=sk-leaky-key\nPAPERFLOW_MODEL=leaky-model\n")
+
+    load_dotenv(env_file)
+    # inside the test the assignment is visible - the call really does leak
+    assert os.environ["DEEPSEEK_API_KEY"] == "sk-leaky-key"
+    assert os.environ["PAPERFLOW_MODEL"] == "leaky-model"
+
+
+def test_the_previous_test_s_dotenv_leak_is_gone():
+    """The other half of the isolation contract: nothing survived the test above."""
+    import os
+
+    assert os.environ.get("DEEPSEEK_API_KEY") != "sk-leaky-key"
+    assert os.environ.get("PAPERFLOW_MODEL") != "leaky-model"

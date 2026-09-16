@@ -3,12 +3,40 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from paperflow.core.tools import ToolRegistry
 from tests.helpers import FIXTURE_PAPER_TEXT, stub_tool
+
+
+@pytest.fixture(autouse=True)
+def restore_environ():
+    """Undo every change a test makes to the process environment.
+
+    ``paperflow.config.load_dotenv`` writes to the real ``os.environ`` by
+    design (that is how a .env reaches the process), so a test that calls it
+    leaves its key behind. That makes results depend on test *order*: the next
+    test that reads ``DEEPSEEK_API_KEY`` - the web dashboard tests do - sees
+    the previous test's fake key, and ``load_dotenv`` then silently refuses to
+    override it, because "existing env wins" is its documented rule.
+
+    Snapshot/restore is used rather than ``monkeypatch`` because the mutation
+    comes from library code touching ``os.environ`` directly, which
+    ``monkeypatch`` only undoes for keys it set itself.
+    """
+    before = dict(os.environ)
+    try:
+        yield
+    finally:
+        for key in list(os.environ):
+            if key not in before:
+                del os.environ[key]
+        for key, value in before.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
 
 
 @pytest.fixture
