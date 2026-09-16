@@ -147,6 +147,11 @@ def test_critic_verifies_claims_with_search_text(tmp_path: Path, paper_text: str
                         "claim": "DBN raises villager win rate from 44.2% to 68.8%",
                         "section": "Experiments",
                         "quote": "44.2% without beliefs and 68.8% with dynamic beliefs",
+                        # the deterministic annotation the Reader writes; a
+                        # claim without one is now "unverifiable" by contract
+                        "quote_verified": True,
+                        "quote_status": "verified",
+                        "quote_verification": "quote found verbatim (whitespace-normalized)",
                     }
                 ]
             }

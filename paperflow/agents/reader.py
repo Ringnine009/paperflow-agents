@@ -82,15 +82,22 @@ Output ONLY a JSON object (no prose, no code fences):
         """Deterministically verify every claim's quote against the full text.
 
         Quote presence becomes a *code* guarantee: each claim is annotated
-        with ``quote_verified`` (found / not found) and the annotated claims
-        are persisted back onto the artifact the Critic and Synthesizer
-        consume. A quote the code cannot find is later downgraded to
-        "unverified" by the Critic regardless of what any LLM says.
+        with ``quote_verified`` (found / not found), ``quote_status``
+        (``verified`` / ``unverified`` / ``unverifiable``) and the annotated
+        claims are persisted back onto the artifact the Critic and
+        Synthesizer consume. A quote the code cannot find is later downgraded
+        by the Critic regardless of what any LLM says.
+
+        This runs even when no full text was obtained (abstract-only runs):
+        the claims are then annotated ``unverifiable`` explicitly. Returning
+        early instead - the old behaviour - left ``quote_verified`` *absent*,
+        which no downstream check treated as a problem, so an unsupported
+        claim could be reported as supported.
         """
-        full_text = load_artifact_text(board, "full_text")
         claims = output.get("claims") or []
-        if not (full_text and claims):
+        if not claims:
             return
+        full_text = load_artifact_text(board, "full_text") or ""
         verify_claims(full_text, claims)
         artifacts = board.artifacts_dir()
         artifacts.mkdir(parents=True, exist_ok=True)
@@ -98,7 +105,8 @@ Output ONLY a JSON object (no prose, no code fences):
         path.write_text(json_dumps(output), encoding="utf-8")
         board.set_artifact(f"{self.name}_output", str(path), self.description)
         found = sum(1 for c in claims if c.get("quote_verified"))
-        board.add_log(
-            f"quote verification: {found}/{len(claims)} quotes found verbatim in full text",
-            agent=self.name,
-        )
+        uncheckable = sum(1 for c in claims if c.get("quote_status") == "unverifiable")
+        message = f"quote verification: {found}/{len(claims)} quotes found verbatim in full text"
+        if uncheckable:
+            message += f"; {uncheckable}/{len(claims)} claim(s) unverifiable (no full text to check against)"
+        board.add_log(message, agent=self.name)

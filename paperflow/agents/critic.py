@@ -15,6 +15,37 @@ from paperflow.agents.common import load_artifact_json
 from paperflow.core.agent import Agent
 from paperflow.core.jsonutil import json_dumps
 
+#: the deterministic statuses a claim can carry (see paperflow.tools.texttools)
+_UNVERIFIED = "unverified"
+_UNVERIFIABLE = "unverifiable"
+
+_NO_ANNOTATION_REASON = (
+    "no deterministic quote check was recorded for this claim (deterministic check)"
+)
+_NOT_FOUND_REASON = "quote not found in paper text (deterministic check)"
+
+
+def _machine_verdict(claim: dict) -> tuple[str | None, str]:
+    """Resolve a claim's machine status to (verdict, reason).
+
+    Returns ``(None, "")`` when the claim *is* deterministically verified -
+    the LLM's own verdict then stands. A claim with no annotation at all is
+    ``unverifiable``, never silently accepted.
+    """
+    status = claim.get("quote_status")
+    if status == "verified":
+        return None, ""
+    if status == _UNVERIFIABLE:
+        reason = claim.get("quote_verification") or "the quote could not be checked"
+        return _UNVERIFIABLE, f"{reason} (deterministic check)"
+    if status == _UNVERIFIED:
+        return _UNVERIFIED, _NOT_FOUND_REASON
+    if claim.get("quote_verified") is True:  # legacy artifact: boolean only
+        return None, ""
+    if claim.get("quote_verified") is False:
+        return _UNVERIFIED, _NOT_FOUND_REASON
+    return _UNVERIFIABLE, _NO_ANNOTATION_REASON
+
 
 class CriticAgent(Agent):
     name = "critic"
@@ -87,13 +118,19 @@ with the right claim even when you paraphrase it.
         }
 
     def after_run(self, board, output: dict) -> None:
-        """Deterministic verdict resolution: downgrade unverifiable quotes.
+        """Deterministic verdict resolution: downgrade quotes the code rejected.
 
-        A claim whose quote the *code* could not find in the paper text
-        (``quote_verified: false`` from the Reader's check) gets the verdict
-        "unverified" no matter what the LLM said - quote presence is not an
-        LLM opinion. The LLM's note is preserved and prefixed with the
-        deterministic reason.
+        Quote presence is not an LLM opinion, so the machine status decides:
+
+        * quote not found in the paper text       -> verdict ``unverified``
+        * the check could not run (no full text)  -> verdict ``unverifiable``
+        * no deterministic annotation at all      -> verdict ``unverifiable``
+
+        The last case is the important one: a *missing* annotation used to be
+        ignored entirely (``claim.get("quote_verified") is False`` never
+        fired), so an unchecked claim kept whatever the LLM said. "We do not
+        know" is now reported as "we do not know". The LLM's note is
+        preserved and prefixed with the deterministic reason.
 
         Alignment is by ``claim_index`` first (the Critic is instructed to
         echo it) and falls back to exact claim wording - two independent LLM
@@ -106,21 +143,26 @@ with the right claim even when you paraphrase it.
             str(c.get("claim", "")).strip().lower(): c for c in claims
         }
         downgraded = 0
+        uncheckable = 0
         for verdict in output.get("verdicts", []):
             claim = self._match_claim(verdict, claims, by_text)
             if claim is None:
                 continue
-            if claim.get("quote_verified") is False:
-                note = f"quote not found in paper text (deterministic check); {verdict.get('note', '')}".strip(" ;")
-                verdict["verdict"] = "unverified"
-                verdict["note"] = note
-                downgraded += 1
+            machine_verdict, reason = _machine_verdict(claim)
+            if machine_verdict is None:
+                continue
+            note = f"{reason}; {verdict.get('note', '')}".strip(" ;")
+            verdict["verdict"] = machine_verdict
+            verdict["note"] = note
+            verdict["deterministic"] = True
+            downgraded += 1
+            uncheckable += int(machine_verdict == "unverifiable")
         if downgraded:
             self.save_output(board, output)  # persist the corrected verdicts
-            board.add_log(
-                f"deterministic downgrade: {downgraded} claim(s) with quotes not found in the paper",
-                agent=self.name,
-            )
+            message = f"deterministic downgrade: {downgraded} claim(s) not verifiable by quote check"
+            if uncheckable:
+                message += f" ({uncheckable} unverifiable - no full text / no check was recorded)"
+            board.add_log(message, agent=self.name)
 
     @staticmethod
     def _match_claim(verdict: dict, claims: list[dict], by_text: dict) -> dict | None:
