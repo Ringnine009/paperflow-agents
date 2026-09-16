@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from paperflow.agents.common import load_artifact_json
+from paperflow.agents.verification import check_report_consistency, inject_machine_verdicts
 from paperflow.config import RESEARCH_FOCUS
 from paperflow.core.agent import Agent
 from paperflow.core.jsonutil import json_dumps
@@ -138,9 +139,31 @@ Output ONLY the Markdown report (no extra commentary before or after).
         if not output.lstrip().startswith("# "):
             heading = f"# {title}" if title else "# Paper Review"
             output = f"{heading}\n\n{output.lstrip()}"
+        # The deterministic quote verdicts are injected by *code*: the LLM's
+        # optimistic "[supported]" markers are corrected where a bullet can be
+        # aligned to a claim, and a machine-generated ledger is appended. What
+        # the model wrote is never trusted to carry the machine decision.
+        output, machine = inject_machine_verdicts(board, output)
         report_dir = board.path.parent
         report_dir.mkdir(parents=True, exist_ok=True)
         path = report_dir / "report.md"
         path.write_text(output, encoding="utf-8")
         board.set_report(str(path), output)
+
+        violations = check_report_consistency(board, output)
+        summary = machine["counts"]
+        if summary["problems"]:
+            board.add_log(
+                f"report carries {summary['problems']}/{summary['total']} machine-unverified claim(s); "
+                f"{machine['repaired']} report bullet(s) corrected",
+                agent=self.name,
+            )
+        if violations:
+            # a disagreement between the artifact and the machine decision is
+            # a delivery bug, not a detail: surface it, never swallow it
+            board.add_log(
+                "report/verification inconsistency: " + "; ".join(violations),
+                level="warning",
+                agent=self.name,
+            )
         return path
