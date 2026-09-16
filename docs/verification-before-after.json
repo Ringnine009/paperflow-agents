@@ -1,0 +1,641 @@
+{
+  "runs": [
+    {
+      "run": "pf-20260821-122442-96c057",
+      "claims": 1,
+      "before": 0,
+      "after": 0,
+      "modes": {},
+      "fixed": [],
+      "still_missing": [
+        {
+          "index": 0,
+          "quote": "44.2% without beliefs and 68.8% with dynamic beliefs",
+          "regression": null
+        }
+      ],
+      "stored_agree": 0,
+      "stored_total": 0
+    },
+    {
+      "run": "pf-20260821-124248-49fa2f",
+      "claims": 5,
+      "before": 5,
+      "after": 5,
+      "modes": {
+        "verbatim": 5
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 0,
+      "stored_total": 0
+    },
+    {
+      "run": "pf-20260821-124801-a86522",
+      "claims": 8,
+      "before": 7,
+      "after": 8,
+      "modes": {
+        "verbatim": 7,
+        "token_aligned": 1
+      },
+      "fixed": [
+        {
+          "index": 6,
+          "mode": "token_aligned",
+          "quote": "self-attention layers are faster than recurrent layers when the sequence length n is smaller than the representation dimensionality d"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 0,
+      "stored_total": 0
+    },
+    {
+      "run": "pf-20260822-012622-fe7e7f",
+      "claims": 7,
+      "before": 6,
+      "after": 7,
+      "modes": {
+        "verbatim": 6,
+        "hyphen_repaired": 1
+      },
+      "fixed": [
+        {
+          "index": 6,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 7,
+      "stored_total": 7
+    },
+    {
+      "run": "pf-20260822-013302-eac5a6",
+      "claims": 6,
+      "before": 6,
+      "after": 6,
+      "modes": {
+        "verbatim": 6
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 6,
+      "stored_total": 6
+    },
+    {
+      "run": "pf-20260822-014217-b8548f",
+      "claims": 8,
+      "before": 8,
+      "after": 8,
+      "modes": {
+        "verbatim": 8
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 8,
+      "stored_total": 8
+    },
+    {
+      "run": "pf-20260822-030226-ec389c",
+      "claims": 7,
+      "before": 7,
+      "after": 7,
+      "modes": {
+        "verbatim": 7
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 7,
+      "stored_total": 7
+    },
+    {
+      "run": "pf-20260822-042209-f0b3f6",
+      "claims": 9,
+      "before": 9,
+      "after": 9,
+      "modes": {
+        "verbatim": 9
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 9,
+      "stored_total": 9
+    },
+    {
+      "run": "pf-20260822-042325-01d0cc",
+      "claims": 6,
+      "before": 6,
+      "after": 6,
+      "modes": {
+        "verbatim": 6
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 6,
+      "stored_total": 6
+    },
+    {
+      "run": "pf-20260822-042536-5969ce",
+      "claims": 11,
+      "before": 11,
+      "after": 11,
+      "modes": {
+        "verbatim": 11
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 11,
+      "stored_total": 11
+    },
+    {
+      "run": "pf-20260822-042643-d0ca84",
+      "claims": 7,
+      "before": 4,
+      "after": 7,
+      "modes": {
+        "hyphen_repaired": 2,
+        "token_aligned": 1,
+        "verbatim": 4
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "token_aligned",
+          "quote": "Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU"
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 7,
+      "stored_total": 7
+    },
+    {
+      "run": "pf-20260822-110259-384721",
+      "claims": 6,
+      "before": 3,
+      "after": 6,
+      "modes": {
+        "verbatim": 3,
+        "hyphen_repaired": 2,
+        "token_aligned": 1
+      },
+      "fixed": [
+        {
+          "index": 1,
+          "mode": "hyphen_repaired",
+          "quote": "Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task"
+        },
+        {
+          "index": 3,
+          "mode": "token_aligned",
+          "quote": "self-attention layers are faster than recurrent layers when the sequence length n is smaller than the representation dimensionality d"
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 6,
+      "stored_total": 6
+    },
+    {
+      "run": "pf-20260824-045851-284a27",
+      "claims": 6,
+      "before": 3,
+      "after": 6,
+      "modes": {
+        "hyphen_repaired": 3,
+        "verbatim": 3
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "hyphen_repaired",
+          "quote": "our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles, by over 2 BLEU"
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 6,
+      "stored_total": 6
+    },
+    {
+      "run": "pf-20260824-050041-b1272f",
+      "claims": 6,
+      "before": 3,
+      "after": 6,
+      "modes": {
+        "hyphen_repaired": 2,
+        "token_aligned": 1,
+        "verbatim": 3
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "token_aligned",
+          "quote": "Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU."
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 6,
+      "stored_total": 6
+    },
+    {
+      "run": "pf-20260824-050830-5c3a5a",
+      "claims": 7,
+      "before": 3,
+      "after": 7,
+      "modes": {
+        "hyphen_repaired": 2,
+        "token_aligned": 2,
+        "verbatim": 3
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "token_aligned",
+          "quote": "Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU."
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        },
+        {
+          "index": 6,
+          "mode": "token_aligned",
+          "quote": "self-attention layers are faster than recurrent layers when the sequence length n is smaller than the representation dimensionality d"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 7,
+      "stored_total": 7
+    },
+    {
+      "run": "pf-20260824-061308-4b3899",
+      "claims": 7,
+      "before": 4,
+      "after": 7,
+      "modes": {
+        "hyphen_repaired": 2,
+        "verbatim_segments": 1,
+        "verbatim": 4
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "verbatim_segments",
+          "quote": "the big transformer model ... outperforms the best previously reported models (including ensembles) by more than 2.0 BLEU, establishing a new state-of-the-art BLEU score of 28.4"
+        },
+        {
+          "index": 6,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 7,
+      "stored_total": 7
+    },
+    {
+      "run": "pf-20260824-061501-b6faa9",
+      "claims": 6,
+      "before": 2,
+      "after": 6,
+      "modes": {
+        "hyphen_repaired": 2,
+        "token_aligned": 2,
+        "verbatim": 2
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "token_aligned",
+          "quote": "Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU"
+        },
+        {
+          "index": 3,
+          "mode": "token_aligned",
+          "quote": "self-attention layers are faster than recurrent layers when the sequence length n is smaller than the representation dimensionality d"
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 6,
+      "stored_total": 6
+    },
+    {
+      "run": "attention-is-all-you-need",
+      "claims": 7,
+      "before": 4,
+      "after": 7,
+      "modes": {
+        "hyphen_repaired": 2,
+        "token_aligned": 1,
+        "verbatim": 4
+      },
+      "fixed": [
+        {
+          "index": 0,
+          "mode": "hyphen_repaired",
+          "quote": "the Transformer is the first transduction model relying entirely on self-attention to compute representations of its input and output without using sequence-aligned RNNs or convolution"
+        },
+        {
+          "index": 1,
+          "mode": "token_aligned",
+          "quote": "Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU"
+        },
+        {
+          "index": 5,
+          "mode": "hyphen_repaired",
+          "quote": "our model performs surprisingly well, yielding better results than all previously reported models with the exception of the Recurrent Neural Network Grammar"
+        }
+      ],
+      "still_missing": [],
+      "stored_agree": 7,
+      "stored_total": 7
+    },
+    {
+      "run": "werewolf-dbn",
+      "claims": 11,
+      "before": 11,
+      "after": 11,
+      "modes": {
+        "verbatim": 11
+      },
+      "fixed": [],
+      "still_missing": [],
+      "stored_agree": 11,
+      "stored_total": 11
+    }
+  ],
+  "totals": {
+    "runs": 19,
+    "claims": 131,
+    "before": 102,
+    "after": 130,
+    "before_rate": 77.86,
+    "after_rate": 99.24,
+    "modes": {
+      "verbatim": 102,
+      "token_aligned": 9,
+      "hyphen_repaired": 18,
+      "verbatim_segments": 1
+    },
+    "legacy_reproduces_stored": "117/117"
+  },
+  "report_consistency": [
+    {
+      "run": "pf-20260821-122442-96c057",
+      "claims": 1,
+      "non_verified": 1,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 1 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unknown) is missing from the verification ledger"
+      ]
+    },
+    {
+      "run": "pf-20260821-124248-49fa2f",
+      "claims": 5,
+      "non_verified": 5,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 5 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unknown) is missing from the verification ledger",
+        "claim #1 (unknown) is missing from the verification ledger",
+        "claim #2 (unknown) is missing from the verification ledger",
+        "claim #3 (unknown) is missing from the verification ledger",
+        "claim #4 (unknown) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unknown",
+        "bullet for claim #1 still claims [supported] although the machine check says unknown",
+        "bullet for claim #2 still claims [supported] although the machine check says unknown",
+        "bullet for claim #3 still claims [supported with caveat] although the machine check says unknown",
+        "bullet for claim #4 still claims [supported] although the machine check says unknown"
+      ]
+    },
+    {
+      "run": "pf-20260821-124801-a86522",
+      "claims": 8,
+      "non_verified": 8,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 8 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unknown) is missing from the verification ledger",
+        "claim #1 (unknown) is missing from the verification ledger",
+        "claim #2 (unknown) is missing from the verification ledger",
+        "claim #3 (unknown) is missing from the verification ledger",
+        "claim #4 (unknown) is missing from the verification ledger",
+        "claim #5 (unknown) is missing from the verification ledger",
+        "claim #6 (unknown) is missing from the verification ledger",
+        "claim #7 (unknown) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unknown",
+        "bullet for claim #1 still claims [supported] although the machine check says unknown",
+        "bullet for claim #2 still claims [supported] although the machine check says unknown",
+        "bullet for claim #3 still claims [supported] although the machine check says unknown",
+        "bullet for claim #4 still claims [supported] although the machine check says unknown",
+        "bullet for claim #5 still claims [supported] although the machine check says unknown",
+        "bullet for claim #6 still claims [supported] although the machine check says unknown"
+      ]
+    },
+    {
+      "run": "pf-20260822-014217-b8548f",
+      "claims": 8,
+      "non_verified": 0,
+      "violations": []
+    },
+    {
+      "run": "pf-20260822-030226-ec389c",
+      "claims": 7,
+      "non_verified": 0,
+      "violations": []
+    },
+    {
+      "run": "pf-20260822-042209-f0b3f6",
+      "claims": 9,
+      "non_verified": 0,
+      "violations": []
+    },
+    {
+      "run": "pf-20260822-042325-01d0cc",
+      "claims": 6,
+      "non_verified": 0,
+      "violations": []
+    },
+    {
+      "run": "pf-20260822-042536-5969ce",
+      "claims": 11,
+      "non_verified": 0,
+      "violations": []
+    },
+    {
+      "run": "pf-20260822-042643-d0ca84",
+      "claims": 7,
+      "non_verified": 3,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 3 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "pf-20260822-110259-384721",
+      "claims": 6,
+      "non_verified": 3,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 3 non-verified claim(s) are invisible to the reader",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #3 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #3 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "pf-20260824-045851-284a27",
+      "claims": 6,
+      "non_verified": 3,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 3 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "pf-20260824-050041-b1272f",
+      "claims": 6,
+      "non_verified": 3,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 3 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "pf-20260824-050830-5c3a5a",
+      "claims": 7,
+      "non_verified": 4,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 4 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "claim #6 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified",
+        "bullet for claim #6 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "pf-20260824-061308-4b3899",
+      "claims": 7,
+      "non_verified": 3,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 3 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #6 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #6 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "pf-20260824-061501-b6faa9",
+      "claims": 6,
+      "non_verified": 4,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 4 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #3 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #3 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "attention-is-all-you-need",
+      "claims": 7,
+      "non_verified": 3,
+      "violations": [
+        "report.md has no '## Verification Ledger' section, so its 3 non-verified claim(s) are invisible to the reader",
+        "claim #0 (unverified) is missing from the verification ledger",
+        "claim #1 (unverified) is missing from the verification ledger",
+        "claim #5 (unverified) is missing from the verification ledger",
+        "bullet for claim #0 still claims [supported] although the machine check says unverified",
+        "bullet for claim #1 still claims [supported] although the machine check says unverified",
+        "bullet for claim #5 still claims [supported] although the machine check says unverified"
+      ]
+    },
+    {
+      "run": "werewolf-dbn",
+      "claims": 11,
+      "non_verified": 0,
+      "violations": []
+    }
+  ]
+}
