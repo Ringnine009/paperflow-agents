@@ -304,11 +304,164 @@ Synthesizer 习惯改写措辞 → 审计的公开样例上 **0/7** 命中。
 Python 侧的机器 ledger 对齐单独测过：64/66 = 97%（阈值 0.5，因为它还有 ledger 兜底）。
 js 侧阈值更严（0.6），且只在回退路径生效，避免误连。
 
-### (b) 零 token/成本记账
+### (b) 零 token/成本记账 —— **已修复**（见问题 5）
 
-`LLMClient.chat()` 仍然丢弃 `usage`，`FakeLLM` 返回的是桩数据（1/1/2），所以**离线无法测真实成本**。
-`scripts/compare_arms.py` 只报可测的替代指标：LLM 调用次数与发送字符数（成本代理），
-并显式输出 `tokens_measurable: false`。**本项未修复**，不谎报。
+`LLMClient.chat()` 曾经丢弃 `usage`，`FakeLLM` 返回桩数据（1/1/2），离线无法测真实成本。
+现已实现逐次真实记账（含 DeepSeek 的 cache hit/miss 分桶）与请求前的硬预算熔断，
+线上实验据此完成，实测总花费 ¥1.34。详见下文问题 5。
+
+---
+
+## 问题 5（高）：唯一缺失的关键证据 —— 真实模型下的三臂对照
+
+### 问题
+
+项目此前**只有架构维度的数据，质量维度零证据**。`docs/arm-comparison.json` 是
+`FakeLLM` 脚本化产物，文件自己声明 `tokens_measurable: false` 且
+`quality_note: SCRIPTED model behaviour ... not evidence about model quality`。
+面试必问：「你这四个 Agent 和写四个 prompt 有什么差别？和单次长 prompt 比有增益吗？」
+——此前无法用数据回答。
+
+### 设计
+
+预注册协议见 [`arm-comparison-live-design.md`](arm-comparison-live-design.md)
+（在跑之前写死：臂定义、指标口径、成本口径、成功判据、停止规则）。要点：
+
+* 同一篇论文（作者本人 Werewolf 论文，21,902 字符，**无截断**）、同一任务文本、同一模型
+  （`deepseek-chat` → 实际服务 `deepseek-flash`）、同一 temperature 0.2、thinking 显式关闭；
+* 三臂 A（单次长 prompt）/ B（现行流水线 + 确定性核验）/ C（同流水线但关闭核验，复刻修复前架构）；
+* 每臂 **3 次独立重复**，A→B→C 交错执行，预算熔断时网格仍保持平衡；
+* **主结论列全部确定性、不经 LLM**：章节完整度、claim 引文可定位率、数字归属错误、
+  覆盖度（14 条预先冻结的贡献清单，每条要求「概念 + 量级」同时命中）；
+* LLM 只用于次要的「引文是否真支持论断」抽样列，并**测量其一致性**：每批换序判两次。
+
+### 为跑通实验先做的实现（红→绿）
+
+| 任务 | 红灯 | 绿灯 |
+| --- | --- | --- |
+| F token/成本记账 + 预算熔断 | `test_llm_usage.py`：`ImportError: cannot import name 'BudgetExceeded'`（8 个用例全红） | 8 passed（全量 211 passed） |
+| G 实验测量核心 + 网格 | `test_compare_arms_live.py`：`No module named 'scripts.compare_arms_live'` | 25 passed |
+| H 语义判官解析与一致性 | `test_judge_semantic_support.py` | 18 passed |
+
+`LLMClient` 现在：累加 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` /
+`completion_tokens`（缺 cache 明细时整段按**贵的** miss 计，未知绝不按折扣算）；
+按公开价折算人民币；**在发请求之前**用「本次输入 + max_tokens 输出」的最坏情况校验预算，
+超限抛 `BudgetExceeded` 且请求不发出——不可能跑完才发现超支。
+
+### 真实数字
+
+```console
+$ python scripts/compare_arms_live.py --runs 3 --budget 30 \
+      --out docs/arm-comparison-live.json --runs-dir outputs/arm-comparison-live
+arm spend: 0.8063 CNY   judge spend: 0.5342 CNY   total: 1.3405 CNY (cap 30.0)   ok=9 failed=0 skipped=0
+arm                          ok     calls          tokens in/out        CNY   coverage  errors  support
+A_single_prompt              3/3      1.0      5,991 /  2,773     0.0253     14.0/14     0.0      —
+B_pipeline                   3/3      9.0     43,623 /  8,652     0.1157     13.0/14     0.0      —
+C_pipeline_no_verification   3/3     10.7     50,707 / 10,245     0.1277     13.7/14     0.0      —
+```
+
+| 维度 | A 单次长 prompt | B 流水线 | C 关闭核验 |
+| --- | ---: | ---: | ---: |
+| 成本/次 | **¥0.0253** | ¥0.1157（**4.57×**） | ¥0.1277（5.05×） |
+| 覆盖度（14 条中） | **14.0** | 13.0 | 13.7 |
+| 确定性事实错误 | 0.0 | 0.0 | 0.0 |
+| 8 个章节齐全 | 8/8 | 8/8 | 8/8 |
+| claim 带程序可定位引文 | **不存在 claim** | **11.0/11.0 = 100%** | 0（核验被关闭） |
+| 报告含机器 ledger | **0/3** | **3/3** | 0/3 |
+
+**结论：流水线没有买到质量，买到的是可核验性与可审计性，代价 4.57 倍成本。**
+单次长 prompt 在覆盖度上每一轮都不低于流水线（14/14 vs 13/14），事实错误同样为 0，
+而每次便宜约九分钱。流水线独有的东西是：每条 claim 都带一条**程序**能在原文定位到的引文，
+以及一份**由代码而不是由模型**写进报告的判定 ledger。
+
+### 过程中发现并修掉的两个测量缺陷（重要，别只报好听的数）
+
+第一次网格的评分器给出 A/B/C 各 1.7 / 0.7 / 2.3 个「事实错误」。逐条核对发现**全是测量 bug**：
+
+1. **比较句被误判**：`Group E: A=44.2%, B=54.6%, C=53.8%, E=68.8%` 这种对照表，
+   旧逻辑把句中出现的每个组名与每个百分数两两比对，一句话产生 5 个假「张冠李戴」。
+   改为只判定**与标签绑定**的数字（`group E = 68.8%` / `group E reached 68.8%`），
+   未绑定的数字只查「是否存在于原文」。
+2. **可由原文推出的算术被当成编造**：`E is +10.2 pp over D`、`F trails E by 0.6 pp`
+   都是对 Table 2 做减法，不是编造。现在用 key 里的数值预计算差集/和集，可推出的值放行；
+   真正推不出的（如 `41.0 pp`）仍然报警。
+
+修完 scorer 后用 `--score-only` **对同一批已存报告重新评分**（不重买样本、不发一次请求，
+并验证了幂等），九个报告全部零事实错误。这件事本身是个面试点：**评分器也要被审计**。
+
+同样发现并修复的接线 bug：流水线的 claim 列表没有传进判官采样器，导致 B/C 的判官样本
+引文全为空、全判 `unclear`——报告里 B 的 support rate 一度是 0.0。修好后 B/C 均为
+两次判定完全一致（κ = 1.00）。
+
+### 已知局限（必须一起读）
+
+* **样本小**：1 篇论文 × 1 个模型 × 3 次重复，各臂在质量列上的区间互相重叠。
+  正确表述是「本样本内未测得质量差异」，不是「A 比 B 好 7%」。
+* **判官问题不对称**：A 没有引文可判，只能问「原文是否包含该论断」（较松），
+  B/C 问的是「这条引文是否支持该论断」（较严）。因此 support rate **不可跨臂比较**，
+  本文只做臂内使用与一致性报告。
+* **错误检测只认 `%`/`pp` 且需绑定配置**：写错方法、作者、机制它看不见。
+  「0 错误」应读作「无此类算术/归属错误」。
+* **`arxiv_search` 被打桩**：流水线的 related-work 工具循环未被考察。
+
+### 面试可讲点
+
+1. **敢报负面结论**：花了钱做真实对照，结论是「多阶段流水线不提升质量，只提升可核验性，
+   成本 4.57 倍」。这比再贴一张架构图有力得多——它证明我会为了答案而不是为了好看去做实验。
+2. **预注册 + 事先冻结清单**：覆盖度清单、错误判定规则、成功判据都在跑之前写死在
+   `paper_ground_truth.py` / `arm-comparison-live-design.md`，事后没改过一个字。
+3. **主结论不依赖 LLM**：三个主指标全是确定性检查；LLM 只用于次要列，且**测量了它的一致性**
+   （换序双判，κ = 1.00），并明确声明该列不可跨臂比较。
+4. **评分器被审计过**：第一次的「事实错误」全是我的测量 bug，我逐条核对、修掉、
+   重算并保留了这一段——「一个会说自己数据错了的评测框架」比「一个从不出错的评测框架」可信。
+5. **成本是可核验的**：token 来自 API 的 `usage`（含 cache 分桶），价格来自官方文档并注明读取日期，
+   按**峰值**价（更贵的一档）折算成人民币，总量对比预算只花掉 4.5%。
+
+---
+
+## 问题 6（中）：测试隔离缺陷 —— `load_dotenv` 污染进程环境
+
+### 现象
+
+`paperflow.config.load_dotenv()` 的**设计行为**就是写 `os.environ`（.env 就是这样生效的），
+而 `tests/test_config.py::test_load_dotenv_parses_key_value` 直接调用真实的
+`load_dotenv(临时文件)` 且不做清理。于是它把 `DEEPSEEK_API_KEY=sk-test-123`、
+`PAPERFLOW_MODEL=deepseek-chat` 留在进程环境里给后续测试用。**结果依赖测试执行顺序**：
+之后任何读这两个变量的测试（`test_web_app.py` 会读 key）看到的都是上一个测试的假值，
+而 `load_dotenv` 又会因为「已有环境变量优先」而**静默拒绝**覆盖——失败模式很隐蔽。
+
+复现证据（红灯）：一次全量运行里该用例失败为
+`AssertionError: assert 'sk-test-123' == 'sk-leaky-key'`——临时文件里的值根本没写进去，
+因为前面那个用例已经把同名变量占住了。
+
+### 根因
+
+环境变量是**进程级全局状态**，而 pytest 默认不做快照；本项目有多个测试直接
+（或经由被调代码）写 `os.environ`。`monkeypatch` 只能撤销它自己设置过的键，
+管不了被调库代码直接写的键。
+
+### 修法
+
+`tests/conftest.py` 增加 `autouse=True` 的 `restore_environ` fixture：
+每个用例前快照整个 `os.environ`，用例结束（含异常）后删除新增键、还原被改键。
+**没有放宽任何断言、没有加 xfail**，泄漏本身仍然被测试断言着：
+
+* `test_dotenv_load_does_not_leak_into_the_next_test`——断言泄漏在用例内**真实发生**；
+* `test_the_previous_test_s_dotenv_leak_is_gone`——断言它**没有活过**用例边界。
+
+### 防复发
+
+* fixture 是 autouse 的，新增测试自动受保护，不需要记得写 `monkeypatch`；
+* 两个方向的断言都在，任何人删掉 fixture 都会立刻变红；
+* 全量套件连续跑 3 次：`211 passed, 3 deselected`（稳定，无随机失败）。
+
+### 面试可讲点
+
+「全跑失败、单跑通过」是测试隔离问题的典型信号，但这次要诚实区分两种情况：
+我确实发现并修掉了一个**真实的**环境变量泄漏（有红灯证据），
+而最初报来的那个 `AttributeError` 是**编辑窗口期的陈旧观察**——`calls` 属性在
+测试写完之后才补上，所以那次失败是「测试先落地、实现在后」的正常 TDD 中间态，
+不是顺序依赖。能区分这两者，比笼统说一句「修好了」有价值。
 
 ---
 
@@ -316,7 +469,7 @@ js 侧阈值更严（0.6），且只在回退路径生效，避免误连。
 
 ```console
 $ python -m pytest
-149 passed, 3 deselected in 4.69s        # 原有 96 个离线测试全绿 + 新增 53 个
+211 passed, 3 deselected in 5.83s        # 原有 149 + 新增 62
 
 $ python -m pytest -m smoke -q
 ...                                      # 3 个 smoke 全过（本次 arXiv/Crossref 未限流，无 429）
@@ -334,17 +487,27 @@ timeline/claim-linking tests OK
 | B 判定入交付物 | `test_report_verification.py`：collection error（模块不存在；行为证据：归档 38 条 bullet 与机器判定矛盾） | 9 passed |
 | C SSRF | `test_fetch_tools_ssrf.py`：15 failed（本地服务内容真的被读回） | 17 passed |
 | D 摘要模式 | `test_abstract_mode.py`：6 failed | 6 passed |
-| E 三臂对照 | `test_compare_arms.py`：`No module named 'scripts.compare_arms'` | 3 passed |
+| E 三臂对照（离线） | `test_compare_arms.py`：`No module named 'scripts.compare_arms'` | 3 passed |
+| F token 记账 + 预算熔断 | `test_llm_usage.py`：`ImportError: BudgetExceeded`（8 红） | 8 passed |
+| G 线上实验测量核心 | `test_compare_arms_live.py`：`No module named 'scripts.compare_arms_live'` | 25 passed |
+| H 语义判官解析/一致性 | `test_judge_semantic_support.py`：`cannot import name 'parse_reasons'` | 18 passed |
+| I 环境隔离 | 全量运行中 `test_dotenv_load_does_not_leak_into_the_next_test` 红 | 全量 211 passed ×3 |
 
 ---
 
 ## 未完成 / 存疑
 
-1. **三臂对照的质量结论跑不了**（无付费 LLM）：offline 只能用脚本化 FakeLLM，质量列测的是脚本不是架构。
-   已交付可复用对照工具 + 实测的「架构决定」列，实验设计见 [`baseline-plan.md`](baseline-plan.md)。
-2. **token/成本记账未实现**：`chat()` 仍丢弃 `usage`（见中等问题 b）。
+1. ~~**三臂对照的质量结论跑不了**（无付费 LLM）~~ → **已完成**，见问题 5。真实模型、3 臂 × 3 次重复、
+   真实 token 与人民币记账，结论与局限在 [`arm-comparison-live.md`](arm-comparison-live.md)。
+   仍然存疑的部分：样本只有 1 篇论文 × 1 个模型 × 3 次重复，各臂质量区间互相重叠；
+   判官问题跨臂不对称，support rate 不可跨臂比较；错误检测只覆盖 `%`/`pp` 类数字；
+   `arxiv_search` 被打桩，related-work 质量未测。
+2. ~~**token/成本记账未实现**~~ → **已完成**，见问题 5：`usage` 三桶累加、公开价折算、
+   请求前硬预算熔断（`LLMClient(budget_cny=...)`）。实测总花费 ¥1.34 / 预算 ¥30。
 3. **DNS rebinding（TOCTOU）未防**：guard 只校验解析结果，未做连接级 IP pinning（已在 `net.py` 文档注明）。
 4. **历史归档未被追改**：`examples/*/report.md`、`outputs/pf-*/report.md` 保留原始错误形态作为审计证据
    （因此新的一致性检查会在它们上面报 11/17 不合格——这是预期行为，不是回归）。
 5. **引文核验的边界**：改写过的引文、只有数字被替换而措辞相同的引文，本核验器抓不到
    （已写入 README Limitations）。
+6. **线上实验只覆盖本地 PDF 入口**：三臂都用 `read_pdf` 起手，`arxiv` / `doi` / `url` 入口与
+   SSRF 防护、arXiv 限流重试等路径未被这次实验覆盖（它们由离线测试覆盖）。

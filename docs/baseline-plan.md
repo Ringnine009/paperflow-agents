@@ -1,7 +1,16 @@
 # Baseline experiment plan — three-arm comparison (A / B / C)
 
-**状态：设计已定，质量结论未跑。** 离线能测的列已测（见下文表格），
-涉及「模型写得好不好」的列**没有**测——原因在下面写清楚了，不伪造结果。
+> **状态：已被真实模型实验取代（2026-09-16）。** 本文件是离线阶段的计划书，保留
+> 作为过程记录。质量结论**已经跑出来了**，用的是真实 DeepSeek 模型、3 臂 × 3 次
+> 重复、真实 token 与人民币记账：见
+> [`arm-comparison-live-design.md`](arm-comparison-live-design.md)（预注册协议）、
+> [`arm-comparison-live.md`](arm-comparison-live.md)（结果与局限）、
+> [`arm-comparison-live.json`](arm-comparison-live.json)（逐次原始数据）。
+> 结论：**流水线没有买到质量，买到的是可核验性与可审计性，代价 4.57 倍成本。**
+> 下文第 4 节列出的四个「跑不了」的原因已逐条解决（真实预算到位、`LLMClient` 已
+> 记账 token、重复次数足够、判定协议已明确并测量了一致性）。
+
+离线能测的列已测（见下文表格），且仍然是有效的架构结论。
 
 工具已就绪：`scripts/compare_arms.py`（离线可跑，`tests/test_compare_arms.py` 覆盖三臂产物）。
 换掉 LLM 后端即可执行真正实验。

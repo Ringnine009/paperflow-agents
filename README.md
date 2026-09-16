@@ -211,9 +211,52 @@ python scripts/demo_ssrf_guard.py            # live SSRF reproduction on 127.0.0
 The single remaining miss is a quote that really is not in that run's text
 (the Reader invented it) — it must keep failing. Details, including the
 match-tier breakdown and the residual risks, are in
-[docs/upgrade-notes.md](docs/upgrade-notes.md); the three-arm experiment
-design (and why its quality columns need a paid model) is in
-[docs/baseline-plan.md](docs/baseline-plan.md).
+[docs/upgrade-notes.md](docs/upgrade-notes.md).
+
+### Does the four-agent pipeline beat one long prompt? (measured, with a real model)
+
+This was the project's one real evidence gap: `scripts/compare_arms.py` runs
+on a scripted `FakeLLM`, so it could prove what the *architecture* guarantees
+and nothing about review *quality*. The live experiment closes it — 3 arms ×
+3 repeats on the author's own werewolf paper, one model, one temperature,
+real tokens and real money (**total spend ¥1.34** of a ¥30 cap):
+
+```bash
+python scripts/compare_arms_live.py --runs 3 --budget 30 \
+    --out docs/arm-comparison-live.json --runs-dir outputs/arm-comparison-live
+```
+
+| per review | A one long prompt | B pipeline | C pipeline, verification off |
+| --- | ---: | ---: | ---: |
+| LLM calls | **1** | 9 | 10.7 |
+| tokens in / out | **5,991 / 2,773** | 43,623 / 8,652 | 50,707 / 10,245 |
+| wall clock | **16.3 s** | 42.1 s | 49.5 s |
+| **cost** | **¥0.0253** | ¥0.1157 (**4.57×**) | ¥0.1277 (5.05×) |
+| contributions covered (of 14, deterministic) | **14.0** | 13.0 | 13.7 |
+| formal factual errors | 0.0 | 0.0 | 0.0 |
+| required headings present (of 8) | 8/8 | 8/8 | 8/8 |
+| claims carrying a machine-checked quote | **none exist** | **11.0/11.0 (100%)** | 0 — check disabled |
+| machine-written ledger in the report | **0/3 runs** | **3/3 runs** | 0/3 runs |
+
+**Result: the pipeline did not buy quality — it bought verifiability and
+auditability, at 4.57× the cost.** The single long prompt covered as much of
+the paper (14/14 vs 13/14, every run) with no arithmetic errors, for about
+nine cents less per review. What only the pipeline provides is a quotation per
+claim that a *program* locates in the paper and a ledger written by *code*
+rather than by the model — verified in the offline fixture, where a fabricated
+quotation is rewritten to `[unverified]` in arm B's report while arm C ships
+it as `[supported]`.
+
+The LLM-judged "does the quote support the claim" column is **secondary and
+not comparable across arms** (arm A produces no quote to judge, so it was
+asked an easier question); it is reported with its model, prompt, sample size
+and a two-pass order-swap reliability check (κ = 1.00 for B and C). Full
+protocol in [docs/arm-comparison-live-design.md](docs/arm-comparison-live-design.md),
+raw numbers and limitations in
+[docs/arm-comparison-live.md](docs/arm-comparison-live.md) and
+[docs/arm-comparison-live.json](docs/arm-comparison-live.json).
+
+`docs/baseline-plan.md` records the earlier offline-only stage of this work.
 
 ---
 
