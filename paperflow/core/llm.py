@@ -22,10 +22,75 @@ from typing import Any
 import requests
 
 from paperflow.config import Settings
+from paperflow.core.pricing import PRICING_PEAK_CNY, Pricing, cost_cny
 
 
 class LLMError(Exception):
     """Raised when the LLM API fails or the tool loop does not terminate."""
+
+
+class BudgetExceeded(LLMError):
+    """Raised *before* sending a request that would break the spend cap.
+
+    The cap is checked on the worst case of the request about to be sent
+    (its input tokens + its `max_tokens` of output), so a run can never
+    discover an overrun only after paying for it.
+    """
+
+
+#: chars per token, used only to bound a request *before* it is sent (the real
+#: count comes back in `usage`). 2.5 is deliberately pessimistic for English:
+#: over-estimating refuses a borderline call instead of overspending.
+_CHARS_PER_TOKEN_ESTIMATE = 2.5
+
+
+class UsageLedger:
+    """Accumulated token usage of one client, in the buckets DeepSeek bills.
+
+    ``prompt_cache_hit_tokens`` / ``prompt_cache_miss_tokens`` are what the
+    invoice is actually computed from, so they are kept apart instead of
+    collapsing everything into ``prompt_tokens``.
+    """
+
+    FIELDS = ("calls", "prompt_tokens", "completion_tokens", "cache_hit_tokens", "cache_miss_tokens")
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.cache_hit_tokens = 0
+        self.cache_miss_tokens = 0
+
+    def record(self, usage: dict | None) -> None:
+        """Accumulate one response's `usage` block.
+
+        A missing cache split means the endpoint did not report one; the whole
+        prompt is then counted as a cache miss (the expensive bucket), so an
+        unknown is never billed as a discount.
+        """
+        usage = usage or {}
+        prompt = int(usage.get("prompt_tokens") or 0)
+        completion = int(usage.get("completion_tokens") or 0)
+        hit = usage.get("prompt_cache_hit_tokens")
+        miss = usage.get("prompt_cache_miss_tokens")
+        if hit is None and miss is None:
+            hit, miss = 0, prompt
+        else:
+            hit, miss = int(hit or 0), int(miss or 0)
+            # trust the total over the split if an endpoint reports both badly
+            if hit + miss != prompt and prompt:
+                miss = max(0, prompt - hit)
+        self.calls += 1
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.cache_hit_tokens += hit
+        self.cache_miss_tokens += miss
+
+    def totals(self) -> dict:
+        return {field: getattr(self, field) for field in self.FIELDS}
+
+    def cost_cny(self, pricing: Pricing = PRICING_PEAK_CNY) -> float:
+        return cost_cny(self.totals(), pricing)
 
 
 class LLMClient:
@@ -39,6 +104,10 @@ class LLMClient:
         timeout: int = 90,
         max_retries: int = 2,
         session: requests.Session | None = None,
+        budget_cny: float | None = None,
+        pricing: Pricing = PRICING_PEAK_CNY,
+        thinking: str | None = None,
+        record_payloads: bool = False,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -46,6 +115,18 @@ class LLMClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.http = session or requests.Session()
+        #: hard spend cap in CNY; None = uncapped (the library default, so
+        #: nothing changes for existing callers)
+        self.budget_cny = budget_cny
+        self.pricing = pricing
+        #: "disabled" pins non-thinking mode (the project never used a
+        #: reasoning model, and thinking output is billed as output tokens)
+        self.thinking = thinking
+        self.usage = UsageLedger()
+        #: set True by an experiment that wants the exact prompts on record;
+        #: payload bodies are truncated to keep the ledger small
+        self.record_payloads = record_payloads
+        self.payloads: list[dict] = []
 
     # -- public API -------------------------------------------------------
     def chat(
@@ -64,17 +145,57 @@ class LLMClient:
             payload["max_tokens"] = max_tokens
         if tool_choice is not None:
             payload["tool_choice"] = tool_choice
+        if self.thinking is not None:
+            payload["thinking"] = {"type": self.thinking}
+
+        self._assert_within_budget(payload, max_tokens)
+        if self.record_payloads:
+            self.payloads.append(_truncated_payload(payload))
 
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._post(payload)
+                self.usage.record(response.get("usage"))
                 return response["choices"][0]["message"]
             except (requests.RequestException, KeyError, ValueError) as exc:
                 last_error = exc
                 if attempt < self.max_retries:
                     time.sleep(1.5 * (attempt + 1))  # simple backoff
         raise LLMError(f"LLM request failed after {self.max_retries + 1} attempts: {last_error}")
+
+    # -- accounting -------------------------------------------------------
+    @property
+    def calls(self) -> int:
+        """How many requests this client has issued (paid calls, not attempts)."""
+        return self.usage.calls
+
+    def usage_totals(self) -> dict:
+        """Cumulative tokens/calls of this client (real `usage`, not an estimate)."""
+        return self.usage.totals()
+
+    def cost(self) -> float:
+        """Cumulative spend in CNY at this client's pricing."""
+        return self.usage.cost_cny(self.pricing)
+
+    def _assert_within_budget(self, payload: dict, max_tokens: int | None) -> None:
+        """Refuse a request whose worst case would exceed `budget_cny`.
+
+        The prompt is fully known before sending, and output is capped by
+        `max_tokens`, so the maximum this call can cost is computable now.
+        """
+        if self.budget_cny is None:
+            return
+        worst_input = _estimate_prompt_tokens(payload)
+        worst_output = int(max_tokens or 0)
+        worst_case = cost_cny(
+            {"cache_miss_tokens": worst_input, "completion_tokens": worst_output}, self.pricing
+        )
+        if self.cost() + worst_case > self.budget_cny:
+            raise BudgetExceeded(
+                f"budget guard: spent {self.cost():.6f} CNY, this call could add up to "
+                f"{worst_case:.6f} CNY, cap is {self.budget_cny:.6f} CNY - request not sent"
+            )
 
     def solve(
         self,
@@ -124,10 +245,43 @@ class LLMClient:
 
     # -- factories --------------------------------------------------------
     @classmethod
-    def from_settings(cls, settings: Settings) -> "LLMClient":
+    def from_settings(cls, settings: Settings, **kwargs: Any) -> "LLMClient":
         return cls(
             api_key=settings.require_api_key(),
             base_url=settings.base_url,
             model=settings.model,
             timeout=settings.http_timeout,
+            **kwargs,
         )
+
+
+def _estimate_prompt_tokens(payload: dict) -> int:
+    """Upper-bound estimate of a request's input tokens, before sending it.
+
+    Only used by the budget guard; the authoritative count always comes from
+    the API's `usage` block.
+    """
+    chars = 0
+    for message in payload.get("messages", []):
+        content = message.get("content")
+        chars += len(content) if isinstance(content, str) else len(json.dumps(content, default=str))
+        for call in message.get("tool_calls") or []:
+            chars += len(json.dumps(call, default=str))
+    if payload.get("tools"):
+        chars += len(json.dumps(payload["tools"], default=str))
+    return int(chars / _CHARS_PER_TOKEN_ESTIMATE) + 8
+
+
+def _truncated_payload(payload: dict, limit: int = 400) -> dict:
+    """A payload copy with every message body clipped, for the run ledger."""
+    kept = {k: v for k, v in payload.items() if k != "messages"}
+    kept["messages"] = [
+        {
+            **{k: v for k, v in message.items() if k != "content"},
+            "content": (message.get("content") or "")[:limit]
+            if isinstance(message.get("content"), str)
+            else message.get("content"),
+        }
+        for message in payload.get("messages", [])
+    ]
+    return kept
