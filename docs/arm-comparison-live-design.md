@@ -109,3 +109,35 @@ The deterministic columns decide the conclusion. The judge column is context.
   three repeats. The per-arm spread is reported so the reader can see how much
   of a difference the sample could even support.
 * Related-work quality, since `arxiv_search` is stubbed.
+
+---
+
+## Addendum: widening the grid to N=5 (rules fixed before the new samples)
+
+The three repeats above were the floor this project set itself, and the write-up
+listed their narrowness as limitation 5. Widening them is a *second* decision,
+so it gets its own pre-registered rules — committed in `3c7dcab` before the two
+extra repeats were bought, and unchanged after seeing their results:
+
+1. **Floor, enforced in code.** A report is refused unless every arm has
+   **≥5 successful runs** (`MIN_RUNS_PER_ARM`, `InsufficientRuns`); failed and
+   skipped runs do not count, and re-scoring a historical grid must declare that
+   grid's own floor. A run count is never claimed, only counted.
+2. **Buy only what is missing.** The stored runs are the cache: the extension
+   reuses their reports and buys exactly the `(arm, repeat)` pairs that are
+   absent (here: repeats 4 and 5 per arm, six runs, ¥0.99 of a ¥10 cap). A run
+   that failed or was skipped is *not* a sample and is re-bought.
+3. **One basis for every column.** Old and new reports are re-scored together
+   by the current scorers; the previously published N=3 summary is preserved
+   verbatim in `docs/arm-comparison-live-n3.json`, and any stored report that no
+   longer matches the text that summary measured is reported explicitly
+   (`stored_report_integrity`, written up in §5.1 of the results) rather than
+   silently re-written or silently ignored.
+4. **The comparison is declared before the numbers are read**: per column, mean
+   and [min–max] for both sample sizes, pairwise interval overlap, and the cost
+   multiple with its cross-run ratio band. The questions to answer are fixed:
+   is the coverage gap inside the noise, is the cost multiple stable, and did
+   the new repeats expose a failure mode the first three never showed.
+5. **No re-running to find a better sample.** If the wider sample overturns a
+   published reading, the reading is retracted in the write-up; the sample is
+   not re-drawn. (This clause fired: the coverage edge did not survive.)
