@@ -183,7 +183,7 @@ def _repair_bullets(markdown: str, rows: list[dict]) -> tuple[str, int]:
         return markdown, 0
 
     bullets = [i for i in range(start, end) if _BULLET.match(lines[i])]
-    assigned = _align_bullets([lines[i] for i in bullets], rows)
+    assigned = align_bullets([lines[i] for i in bullets], rows)
     repaired = 0
     for position, index in enumerate(bullets):
         row = problems.get(assigned.get(position, -1))
@@ -215,8 +215,15 @@ def _rewrite_marker(line: str, row: dict) -> tuple[str, bool]:
     return line.rstrip() + f" **{marker}**", True
 
 
-def _align_bullets(bullet_texts: list[str], rows: list[dict], threshold: float = 0.5) -> dict[int, int]:
-    """Map bullet position -> claim index using wording/quote/token overlap."""
+def align_bullets(bullet_texts: list[str], rows: list[dict], threshold: float = 0.5) -> dict[int, int]:
+    """Map bullet position -> claim index using wording/quote/token overlap.
+
+    Public because it is the project's one answer to "which claim is this
+    paraphrase of?": the ledger injection, the consistency check and the
+    experiment's judge sampling all have to agree on it, and three
+    independently-written matchers would disagree on exactly the borderline
+    bullets that matter.
+    """
     pairs: list[tuple[float, int, int]] = []
     for position, text in enumerate(bullet_texts):
         for row in rows:
@@ -329,7 +336,7 @@ def check_report_consistency(board, markdown: str) -> list[str]:
     start, end = _claim_section_bounds(lines)
     if start is not None:
         bullets = [i for i in range(start, end) if _BULLET.match(lines[i])]
-        assigned = _align_bullets([lines[i] for i in bullets], rows)
+        assigned = align_bullets([lines[i] for i in bullets], rows)
         for position, index in enumerate(bullets):
             row = next((r for r in problems if r["claim_index"] == assigned.get(position, -1)), None)
             if row is None:
