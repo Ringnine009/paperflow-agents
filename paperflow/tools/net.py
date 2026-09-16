@@ -8,6 +8,18 @@
 * :func:`_assert_http_url` - SSRF guard: the fetch tools refuse any URL
   whose host is localhost, loopback, private, link-local (incl. the
   ``169.254.169.254`` cloud-metadata address) or otherwise non-public.
+* :func:`http_get_bytes_checked` / :func:`http_get_checked` - the
+  user-supplied-URL entry points. They apply the SSRF guard to **every**
+  redirect hop (``allow_redirects=False`` plus a manual, validated follow),
+  because a public URL answering ``302 -> http://169.254.169.254/`` would
+  otherwise walk straight past a guard that only saw the first URL.
+
+Known limit (not fixed here): the guard resolves the hostname *before* the
+request, so a DNS name that resolves to a public address for the check and a
+private one for the request (DNS rebinding, TOCTOU) is not defeated. Closing
+that needs connection-level pinning to the checked IP. The fetch tools are
+also only ever driven by the local dashboard, which is not meant to be
+exposed publicly.
 """
 
 from __future__ import annotations
@@ -17,7 +29,7 @@ import ipaddress
 import socket
 import time
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from pypdf import PdfReader
@@ -50,6 +62,24 @@ def throttle(host: str, min_interval: float = 3.0) -> None:
 #: transient server errors; everything else (404, 403, ...) is final
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
+#: redirect statuses; they are followed manually so every hop can be checked
+REDIRECT_STATUS = {301, 302, 303, 307, 308}
+
+#: how many redirect hops a single fetch may take
+MAX_REDIRECTS = 5
+
+
+def _with_retries(fetch, max_retries: int, retry_delay: float):
+    """Call `fetch()` with backoff on rate limits / 5xx, then raise on 4xx."""
+    response = None
+    for attempt in range(max_retries + 1):
+        response = fetch()
+        if response.status_code not in RETRYABLE_STATUS or attempt >= max_retries:
+            break
+        time.sleep(retry_delay * (attempt + 1))
+    response.raise_for_status()
+    return response
+
 
 def http_get_bytes(
     url: str,
@@ -58,26 +88,80 @@ def http_get_bytes(
     max_retries: int = 3,
     retry_delay: float = 8.0,
 ) -> bytes:
-    """GET a URL and return raw bytes, retrying rate limits / 5xx with backoff.
+    """GET a *trusted, fixed* URL and return raw bytes, retrying 429 / 5xx.
+
+    This is the internal primitive used for the arXiv and Crossref API
+    endpoints (fixed public hosts). It does no SSRF check and follows
+    redirects with requests' defaults - never call it with a user-supplied
+    URL; use :func:`http_get_bytes_checked` for those.
 
     arXiv's public API blocks IPs that burst too many requests (HTTP 429);
     waiting out the window with exponential backoff is the polite recovery.
     """
-    response = None
-    for attempt in range(max_retries + 1):
-        response = requests.get(
-            url, timeout=timeout, headers={"User-Agent": USER_AGENT, **(headers or {})}
-        )
-        if response.status_code not in RETRYABLE_STATUS or attempt >= max_retries:
-            break
-        time.sleep(retry_delay * (attempt + 1))
-    response.raise_for_status()
+    response = _with_retries(
+        lambda: requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT, **(headers or {})}),
+        max_retries,
+        retry_delay,
+    )
     return response.content
 
 
 def http_get(url: str, timeout: int = 30, headers: dict | None = None) -> str:
-    """GET a URL and return decoded text."""
+    """GET a trusted, fixed URL and return decoded text (see :func:`http_get_bytes`)."""
     return http_get_bytes(url, timeout=timeout, headers=headers).decode("utf-8", errors="replace")
+
+
+def _fetch_following_checked_redirects(
+    url: str,
+    timeout: int,
+    headers: dict | None,
+    max_redirects: int = MAX_REDIRECTS,
+):
+    """GET `url`, validating the SSRF guard on the URL *and every redirect hop*.
+
+    ``allow_redirects=False`` keeps requests from following a 302/301 on its
+    own; each hop is resolved against the guard before it is requested, so a
+    public URL cannot bounce the fetch into loopback / the private network /
+    the cloud metadata endpoint.
+    """
+    current = url
+    for _ in range(max_redirects + 1):
+        _assert_http_url(current)
+        response = requests.get(
+            current,
+            timeout=timeout,
+            headers={"User-Agent": USER_AGENT, **(headers or {})},
+            allow_redirects=False,
+        )
+        location = response.headers.get("location") if response.status_code in REDIRECT_STATUS else None
+        if not location:
+            return response
+        current = urljoin(current, location)
+    raise ToolNetError(f"too many redirects (>{max_redirects}) starting at {url!r}")
+
+
+def http_get_bytes_checked(
+    url: str,
+    timeout: int = 30,
+    headers: dict | None = None,
+    max_retries: int = 3,
+    retry_delay: float = 8.0,
+    max_redirects: int = MAX_REDIRECTS,
+) -> bytes:
+    """GET a *user-supplied* URL: SSRF-checked, hop by hop. Returns raw bytes."""
+    response = _with_retries(
+        lambda: _fetch_following_checked_redirects(url, timeout, headers, max_redirects),
+        max_retries,
+        retry_delay,
+    )
+    return response.content
+
+
+def http_get_checked(url: str, timeout: int = 30, headers: dict | None = None, **kwargs) -> str:
+    """GET a *user-supplied* URL: SSRF-checked, hop by hop. Returns text."""
+    return http_get_bytes_checked(url, timeout=timeout, headers=headers, **kwargs).decode(
+        "utf-8", errors="replace"
+    )
 
 
 def _non_public_reason(host: str) -> str | None:
@@ -131,7 +215,11 @@ def _assert_http_url(url: str) -> None:
 
 
 def download_pdf(url: str, cache_dir: str | Path, timeout: int = 60) -> Path:
-    """Download a PDF into a content-addressed cache; reuse on repeat calls."""
+    """Download a PDF into a content-addressed cache; reuse on repeat calls.
+
+    The URL is user-supplied, so it goes through the SSRF-checked fetch: the
+    guard runs on the URL and on every redirect hop.
+    """
     _assert_http_url(url)
     cache = Path(cache_dir)
     cache.mkdir(parents=True, exist_ok=True)
@@ -139,7 +227,7 @@ def download_pdf(url: str, cache_dir: str | Path, timeout: int = 60) -> Path:
     dest = cache / f"{digest}.pdf"
     if dest.exists():
         return dest
-    dest.write_bytes(http_get_bytes(url, timeout=timeout))
+    dest.write_bytes(http_get_bytes_checked(url, timeout=timeout))
     return dest
 
 

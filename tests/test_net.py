@@ -77,11 +77,13 @@ def test_download_pdf_uses_cache(tmp_path: Path, monkeypatch):
     payload = b"%PDF-1.4 cached-content"
     called = {"n": 0}
 
-    def fake_get_bytes(url, timeout, headers=None):
+    def fake_get_bytes(url, timeout, headers=None, **kwargs):
         called["n"] += 1
         return payload
 
-    monkeypatch.setattr(net, "http_get_bytes", fake_get_bytes)
+    # download_pdf takes user-supplied URLs, so it fetches through the
+    # SSRF-checked entry point (the seam this test stubs)
+    monkeypatch.setattr(net, "http_get_bytes_checked", fake_get_bytes)
     dest1 = net.download_pdf("https://example.com/a.pdf", tmp_path / "cache", timeout=10)
     dest2 = net.download_pdf("https://example.com/a.pdf", tmp_path / "cache", timeout=10)
     assert dest1 == dest2

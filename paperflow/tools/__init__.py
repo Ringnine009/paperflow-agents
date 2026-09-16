@@ -59,8 +59,15 @@ def _resolve_doi(doi: str, timeout: int = 45) -> str:
 
 
 def _fetch_url(url: str, max_chars: int = 20000, timeout: int = 30) -> str:
-    """Fetch a URL's text content (truncated) - useful for landing pages."""
-    text = net.http_get(url, timeout=timeout)
+    """Fetch a URL's text content (truncated) - useful for landing pages.
+
+    The URL comes from the user (CLI / dashboard), so it is fetched through
+    the SSRF-checked path: private, loopback, link-local and metadata
+    addresses are refused, on the URL and on every redirect hop. Retries are
+    kept low because a hostile host answering 429 could otherwise make the
+    agent sleep through a long backoff.
+    """
+    text = net.http_get_checked(url, timeout=timeout, max_retries=1)
     return text[: int(max_chars)]
 
 
