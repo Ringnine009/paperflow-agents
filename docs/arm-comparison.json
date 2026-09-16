@@ -1,0 +1,60 @@
+{
+  "arms": {
+    "A_single_prompt": {
+      "arm": "A_single_prompt",
+      "llm_calls": 1,
+      "prompt_chars": 1070,
+      "report_chars": 578,
+      "required_headings_present": 8,
+      "supported_markers_in_report": 2,
+      "unverified_markers_in_report": 0,
+      "unverifiable_markers_in_report": 0,
+      "ledger_in_report": false,
+      "claims_total": 0,
+      "claims_with_deterministic_check": 0,
+      "verifiable_claim_ratio": 0.0,
+      "claims_verified_by_quote": 0,
+      "prompt_chars_per_call": 1070,
+      "estimated_prompt_tokens": 268
+    },
+    "B_pipeline": {
+      "arm": "B_pipeline",
+      "status": "done",
+      "llm_calls": 6,
+      "prompt_chars": 25426,
+      "report_chars": 1248,
+      "required_headings_present": 8,
+      "supported_markers_in_report": 1,
+      "unverified_markers_in_report": 2,
+      "unverifiable_markers_in_report": 0,
+      "ledger_in_report": true,
+      "claims_total": 2,
+      "claims_with_deterministic_check": 2,
+      "verifiable_claim_ratio": 1.0,
+      "claims_verified_by_quote": 1,
+      "prompt_chars_per_call": 4238,
+      "estimated_prompt_tokens": 6356
+    },
+    "C_pipeline_no_verification": {
+      "arm": "C_pipeline_no_verification",
+      "status": "done",
+      "llm_calls": 6,
+      "prompt_chars": 23329,
+      "report_chars": 547,
+      "required_headings_present": 8,
+      "supported_markers_in_report": 2,
+      "unverified_markers_in_report": 0,
+      "unverifiable_markers_in_report": 0,
+      "ledger_in_report": false,
+      "claims_total": 2,
+      "claims_with_deterministic_check": 0,
+      "verifiable_claim_ratio": 0.0,
+      "claims_verified_by_quote": 0,
+      "prompt_chars_per_call": 3888,
+      "estimated_prompt_tokens": 5832
+    }
+  },
+  "tokens_measurable": false,
+  "tokens_note": "FakeLLM returns a stub `usage` block (1/1/2), so real token counts and cost are not measurable offline; `estimated_prompt_tokens` is a characters/4 estimate.",
+  "quality_note": "SCRIPTED model behaviour: every arm answers from a canned FakeLLM script, so the quality column (required_headings_present) is not evidence about model quality. Only architecture-determined columns are evidence. See docs/baseline-plan.md."
+}
