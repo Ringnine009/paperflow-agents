@@ -387,3 +387,21 @@ paperflow/
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## Full measured results (the long-form record kept off the site)
+
+The portfolio page shows one conclusion per line, each carrying the numbers and
+the caveat that qualifies it. The paragraphs below are the full-length version
+those lines were compressed from — the same figures, with the reasoning and the
+measurement history that the page deliberately no longer spells out. Nothing here
+is new, and no number on the page differs from this record.
+
+1. The design that makes the rest possible: quote checking is done by code, not by asking a model again. That immediately exposed the checker's own defect — recomputing all 131 claims in the archived runs showed 26 "not found" verdicts of which 24 were its own fault (PDF line-break hyphenation, digits injected by extraction). Located quotes went 102/131 (77.9%) to 130/131 (99.2%); the one remaining miss is a quote that genuinely is not in the paper, so the fix removed false negatives without buying a single false positive.
+2. Auditing the archived reports against the machine verdict exposed a failure mode the project had no way to see: 11 of 17 reports disagreed with the verdict, with 38 claims still marked as supported after being downgraded. Reports now carry a code-generated verification ledger plus a post-generation consistency check, and the fetch tools reject private addresses on every redirect hop (verified against a real service bound to 127.0.0.1).
+3. Does a four-agent pipeline beat one long prompt? Measured on real calls: three arms, five repetitions each. The pipeline does NOT buy quality — it buys auditability. Coverage of a 14-item contribution checklist: single prompt 14.0 (range 14–14), pipeline 13.4 (13–14) — the ranges overlap, and the pipeline hit a perfect 14/14 in 2 of its 5 runs. Both arms scored zero factual errors.
+4. A retraction, because the earlier reading came from a smaller sample: with three repetitions the coverage looked separated (14/14 vs 13/14) and I wrote it that way. At five repetitions the intervals overlap, so the defensible claim is only "no quality difference measured in this sample". Re-scoring the same stored reports shows the overlap was already there at n=3 — the three-sample spread was noise.
+5. What the pipeline uniquely produces: every claim carries a quote that code can locate in the source (machine layer: 9.8/9.8 claims, 100%), and the report contains a verification ledger written by code rather than by the model (5/5 runs). The single-prompt arm has no claim artefact at all, so nothing about its citations can be checked. A fixture proves the ledger is load-bearing: when the Reader fabricates a quote, the pipeline rewrites that bullet to [unverified] and logs it, while the verification-disabled arm still ships it as [supported].
+6. Cost, the one column that is stable across sample sizes: 4.31× more per review (¥0.1138 vs ¥0.0264), measured call by call — 9 LLM calls against 1. So the honest framing is a trade, not a win: you pay ~4.3× to get claims that something other than an LLM can check. Also honest about variance: the pipeline's per-bullet locatable-quote rate is unstable (0.0–0.182 across its runs), which is a real limitation of a single run of it.
+7. A measurement caveat worth stating, because this is where such experiments usually lie: the first scoring pass reported 1.7–2.3 factual errors per arm and every one was a bug in the scorer (it compared a grouped sentence like "Group E: A=44.2%, B=54.6%, C=53.8%, E=68.8%" pairwise, manufacturing five false attributions, and read a legitimate subtraction as a fabrication). Re-scoring the SAME stored reports with zero new API calls gave zero factual errors across all arms. Separately, an integrity audit found that 4 of the 9 original run directories had been overwritten since the measurement, so the published n=3 numbers are preserved from git and both readings are shown with timestamps.
